@@ -125,6 +125,19 @@ describe("embedded write-churn batch lifecycle", () => {
     try {
       await agent.prompt("rewrite the draft in one sequential batch");
 
+      const toolResults = agent.state.messages.filter((message) => message.role === "toolResult");
+      const feedback = toolResults.flatMap((message) =>
+        message.content.filter(
+          (item) => item.type === "text" && item.text.includes("[System note: Tool-loop warning"),
+        ),
+      );
+      expect(feedback).toEqual([
+        {
+          type: "text",
+          text: `[System note: Tool-loop warning after ${TOOL_LOOP_WARNING_THRESHOLD} repeated calls. Change your approach or stop if you are not making progress.]`,
+        },
+      ]);
+      expect(toolResults).toHaveLength(writes.length);
       expect(warnings).toEqual([
         expect.objectContaining({
           detector: "argument_churn",
@@ -208,6 +221,19 @@ describe("embedded write-churn batch lifecycle", () => {
     try {
       await agent.prompt("rewrite the draft in one default-parallel batch");
 
+      const toolResults = agent.state.messages.filter((message) => message.role === "toolResult");
+      const feedback = toolResults.flatMap((message) =>
+        message.content.filter(
+          (item) => item.type === "text" && item.text.includes("[System note: Tool-loop warning"),
+        ),
+      );
+      expect(feedback).toEqual([
+        {
+          type: "text",
+          text: `[System note: Tool-loop warning after ${TOOL_LOOP_WARNING_THRESHOLD} repeated calls. Change your approach or stop if you are not making progress.]`,
+        },
+      ]);
+      expect(toolResults).toHaveLength(writes.length);
       expect(warnings).toEqual([
         expect.objectContaining({
           detector: "argument_churn",
