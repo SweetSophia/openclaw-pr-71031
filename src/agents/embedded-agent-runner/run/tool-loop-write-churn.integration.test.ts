@@ -117,7 +117,10 @@ describe("embedded write-churn batch lifecycle", () => {
       if (event.type === "tool.loop" && event.level === "warning") {
         thresholdTimeline.push(`warning:${event.count}`);
       }
-      if (event.type === "tool.execution.started" && event.toolCallId === "write-10") {
+      if (
+        event.type === "tool.execution.started" &&
+        event.toolCallId === `write-${TOOL_LOOP_WARNING_THRESHOLD}`
+      ) {
         thresholdTimeline.push(`started:${event.toolCallId}`);
       }
     });
