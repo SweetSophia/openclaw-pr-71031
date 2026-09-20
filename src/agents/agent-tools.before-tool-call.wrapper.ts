@@ -27,9 +27,7 @@ import {
 } from "./agent-tools.before-tool-call.decision.js";
 import {
   buildToolContentPrivateData,
-  emitSkillUsedDiagnostic,
   emitToolBlockedSecurityEvent,
-  findSkillUsageMatch,
   prepareToolTerminalPresentation,
   reconcileLoopCallExecutionParams,
   recordLoopOutcome,
@@ -76,6 +74,10 @@ import {
   getBeforeToolCallSourceTool,
   type BeforeToolCallDiagnosticOptions,
 } from "./before-tool-call-metadata.js";
+import {
+  emitSkillUsedDiagnostic,
+  findSkillUsageMatch,
+} from "./before-tool-call-skill-telemetry.js";
 import { getChannelAgentToolMeta } from "./channel-tool-metadata.js";
 import {
   CODE_MODE_WAIT_TOOL_NAME,
