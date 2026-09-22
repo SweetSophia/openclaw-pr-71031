@@ -24,7 +24,7 @@ export type SkillUsageMatch = {
   activation: "command" | "read";
 };
 
-export function canonicalSkillFile(value: string | undefined): string | undefined {
+function canonicalSkillFile(value: string | undefined): string | undefined {
   const skillFile = value?.trim();
   return skillFile && path.isAbsolute(skillFile)
     ? canonicalizePath(path.resolve(skillFile))

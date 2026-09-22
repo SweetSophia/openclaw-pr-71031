@@ -174,12 +174,6 @@ export function finalizeToolTerminalPresentation(params: {
  * Error used when before_tool_call intentionally vetoes a tool call.
  */
 
-export {
-  findSkillUsageMatch,
-  emitSkillUsedDiagnostic,
-} from "./before-tool-call-skill-telemetry.js";
-export type { SkillUsageMatch } from "./before-tool-call-skill-telemetry.js";
-
 export const loadBeforeToolCallRuntime = createLazyRuntimeSurface(
   () => import("./agent-tools.before-tool-call.runtime.js"),
   ({ beforeToolCallRuntime }) => beforeToolCallRuntime,
