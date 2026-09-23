@@ -263,6 +263,7 @@ export async function admitToolCallBatch(
               })
             : undefined,
         },
+        // SAFETY: tuple order mirrors the candidate order passed to Promise.all.
       ]) as Promise<[string, { toolName: string; writeTargetHash: string | undefined }]>[],
     ),
   );
