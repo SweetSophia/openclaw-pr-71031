@@ -9,6 +9,7 @@ import {
   beforeToolCallLog as log,
   emitLoopWarning,
   loadBeforeToolCallRuntime,
+  shouldEmitLoopWarning,
 } from "./agent-tools.before-tool-call.diagnostics.js";
 import {
   recordBatchAdmittedToolCall,
@@ -81,6 +82,7 @@ async function evaluateToolLoopCall(
     logToolLoopAction({
       sessionKey: ctx.sessionKey,
       sessionId: ctx.sessionId,
+      ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
       toolName,
       level: "critical",
       action: "block",
@@ -99,7 +101,22 @@ async function evaluateToolLoopCall(
       reason: result.message,
     };
   }
-  if (emitLoopWarning({ ctx, sessionState, toolName, warning: result, logToolLoopAction })) {
+  const baseWarningKey = result.warningKey ?? `${result.detector}:${toolName}`;
+  const warningKey = ctx.runId ? `${ctx.runId}:${baseWarningKey}` : baseWarningKey;
+  if (shouldEmitLoopWarning(sessionState, warningKey, result.count)) {
+    log.warn(`Loop warning for ${toolName}: ${result.message}`);
+    logToolLoopAction({
+      sessionKey: ctx.sessionKey,
+      sessionId: ctx.sessionId,
+      ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+      toolName,
+      level: "warning",
+      action: "warn",
+      detector: result.detector,
+      count: result.count,
+      message: result.message,
+      ...(result.pairedToolName ? { pairedToolName: result.pairedToolName } : {}),
+    });
     return {
       kind: "tool-loop-warning",
       toolCallId: call.toolCallId ?? "",

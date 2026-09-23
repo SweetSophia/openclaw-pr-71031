@@ -391,7 +391,11 @@ export function summarizeToolParams(params: unknown): DiagnosticToolParamsSummar
   return { kind: "other" };
 }
 
-function shouldEmitLoopWarning(state: SessionState, warningKey: string, count: number): boolean {
+export function shouldEmitLoopWarning(
+  state: SessionState,
+  warningKey: string,
+  count: number,
+): boolean {
   if (!state.toolLoopWarningBuckets) {
     state.toolLoopWarningBuckets = new Map();
   }
@@ -415,7 +419,7 @@ export function emitLoopWarning(args: {
   sessionState: SessionState;
   toolName: string;
   warning: ToolLoopWarning;
-  logToolLoopAction: typeof import("../logging/diagnostic.js").logToolLoopAction;
+  logToolLoopAction: typeof import("../logging/diagnostic-tool-loop.js").logToolLoopAction;
 }): boolean {
   const baseWarningKey = args.warning.warningKey ?? `${args.warning.detector}:${args.toolName}`;
   const warningKey = args.ctx.runId ? `${args.ctx.runId}:${baseWarningKey}` : baseWarningKey;

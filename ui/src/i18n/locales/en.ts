@@ -12,6 +12,7 @@ export const en: TranslationMap & {
   chat: TranslationMap & {
     codeBlock: TranslationMap;
     commands: TranslationMap;
+    detailPanel: TranslationMap;
     welcome: TranslationMap & { suggestions: TranslationMap & { whatCanYouDo: string } };
     backgroundTasks: TranslationMap;
     goals: TranslationMap;
@@ -30,6 +31,7 @@ export const en: TranslationMap & {
     pullRequests: TranslationMap;
   };
   configPage: TranslationMap;
+  profilePage: TranslationMap & { personalInstructions: TranslationMap };
   connection: TranslationMap;
   configView: TranslationMap;
   custodian: TranslationMap;
@@ -2556,6 +2558,15 @@ export const en: TranslationMap & {
     restartRequired: "Gateway restart required.",
     saveErrorTitle: "Could not update feature",
     saveFailed: "The feature setting could not be saved.",
+    decisionAssistance: {
+      title: "Decision assistance",
+      description:
+        "Enable experimental features powered by Decision models. Requires a Decision model, set globally or per agent. No features use this setting yet.",
+      optedIn: "Preference saved.",
+      loading: "Loading setting…",
+      unavailable: "Couldn’t load this setting. Reconnect or refresh to try again.",
+      refresh: "Refresh configuration",
+    },
     codeMode: {
       title: "Code Mode",
       description:
@@ -2790,6 +2801,11 @@ export const en: TranslationMap & {
     manageCommon: "Manage connections in Profile",
   },
   profilePage: {
+    personalInstructions: {
+      title: "Personal instructions",
+      description:
+        "Tell this agent about you and how you like to work. This edits only your personal USER.md, not the shared workspace file.",
+    },
     offline: "Connect to the gateway to meet your agent.",
     usageStatistics: "Usage statistics",
     usageStatisticsDescription: "View activity, costs, and usage trends.",
@@ -3240,6 +3256,8 @@ export const en: TranslationMap & {
       loadFailed: "Could not load {detail}: {error}",
       noDataInRange: "No data in range",
       usageOverTime: "Usage Over Time",
+      rangeStart: "Range start",
+      rangeEnd: "Range end",
       reset: "Reset",
       perTurn: "Per Turn",
       cumulative: "Cumulative",
@@ -3824,6 +3842,9 @@ export const en: TranslationMap & {
       groups: "Groups",
       coding: "Coding",
       catalogViewOptions: "View options",
+      reorderItem: "Reorder {item}",
+      moveUp: "Move up",
+      moveDown: "Move down",
       hideFromSidebar: "Hide from sidebar",
       sectionHidden: "{section} hidden.",
       sectionHiddenRecovery: "Show it again in Settings > Appearance > Sidebar.",
@@ -4042,39 +4063,7 @@ export const en: TranslationMap & {
         failed: "Failed",
       },
     },
-    detailPanel: {
-      close: "Close sidebar",
-      copyPath: "Copy path",
-      discard: "Discard",
-      editFile: "Edit file",
-      searchInFile: "Search in file",
-      showInFiles: "Show in Files",
-      unavailable: "Unable to open",
-      previousMatch: "Previous match",
-      nextMatch: "Next match",
-      overwrite: "Overwrite",
-      viewRawText: "View Raw Text",
-      viewSource: "Source",
-      renderedMarkdown: "Rendered Markdown",
-      renderedMarkdownHint: "Sanitized rich-text preview for quick reading.",
-      noPreviewableMarkdown: "No previewable markdown content.",
-      noContent: "No content available",
-      fullContentOversized:
-        "Full content is unavailable because the stored transcript entry is too large to return safely.",
-      fullContentNotVisible:
-        "Full content is unavailable because this transcript entry does not have a visible WebChat projection.",
-      fullContentUnavailable: "Full content is no longer available for this transcript entry.",
-      copyContents: "Copy file contents",
-      fileChanged: "File changed on disk since it was loaded.",
-      renderPreview: "Render preview",
-      imagePreview: "Image preview",
-      file: "File",
-      markdownPreview: "Markdown preview",
-      toolDetails: "Tool details",
-      reloadFailed: "Failed to reload the latest file.",
-      overwriteLoadFailed: "Failed to load the latest file before overwriting.",
-      fullContentLoadFailed: "Failed to load full content: {error}",
-    },
+    detailPanel: {},
     sidebarColumns: {
       close: "Close {panel}",
     },
@@ -4977,7 +4966,7 @@ export const en: TranslationMap & {
       agentMessageRequired: "Agent message is required.",
       timeoutInvalid: "If set, timeout must be 0 or greater (0 disables this timeout).",
       webhookUrlRequired: "Webhook URL is required.",
-      webhookUrlInvalid: "Webhook URL must start with http:// or https://.",
+      webhookUrlInvalid: "Webhook URL must be a valid http(s):// URL without embedded credentials.",
       invalidRunTime: "Invalid run time.",
       invalidIntervalAmount: "Invalid interval amount.",
       cronExprRequiredShort: "Cron expression required.",

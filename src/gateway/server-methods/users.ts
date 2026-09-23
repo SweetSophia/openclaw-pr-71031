@@ -32,6 +32,7 @@ import {
 } from "../../state/user-profiles.js";
 import { invalidateOperatorRolePolicy } from "../operator-role-policy.js";
 import { broadcastChatMetadataChanged } from "../server-chat-metadata-lifecycle.js";
+import { holdGatewayPolicyResponse } from "../server/ws-policy-close.js";
 import {
   authenticatedProfileUnavailableError,
   isGatewayClientProfilePending,
@@ -41,6 +42,7 @@ import { publishUserPreferencesChanged } from "./user-preference-events.js";
 import { usersAuthConnectHandlers } from "./users-auth-connect.js";
 import { usersChannelIdentityHandlers } from "./users-channel-identities.js";
 import { usersGitHubHandlers } from "./users-github.js";
+import { usersPersonalFileHandlers } from "./users-personal-file.js";
 import {
   prepareUserProfileAdministration,
   requireProfileMutationAccess,
@@ -83,6 +85,7 @@ export const usersHandlers: GatewayRequestHandlers = {
   ...usersAuthConnectHandlers,
   ...usersChannelIdentityHandlers,
   ...usersGitHubHandlers,
+  ...usersPersonalFileHandlers,
   "users.list": async ({ params, respond }) => {
     if (!assertValidParams(params, validateUsersListParams, "users.list", respond)) {
       return;
@@ -261,6 +264,7 @@ export const usersHandlers: GatewayRequestHandlers = {
     }
     try {
       const assertCurrent = await prepareUserProfileAdministration(options);
+      holdGatewayPolicyResponse(respond);
       const profile = await setCanonicalUserProfileRole(profileId, role, {
         assertCurrent: () => {
           assertCurrent();
@@ -268,9 +272,11 @@ export const usersHandlers: GatewayRequestHandlers = {
             throw new Error(unknownRoleMessage);
           }
         },
+        onCommitted: (canonicalProfileId) => {
+          invalidateOperatorRolePolicy(canonicalProfileId);
+          context.disconnectClientsForUserProfile?.(canonicalProfileId);
+        },
       });
-      invalidateOperatorRolePolicy(profile.id);
-      context.disconnectClientsForUserProfile?.(profile.id);
       respond(true, { profile });
     } catch (error) {
       respond(false, undefined, profileError(error));
