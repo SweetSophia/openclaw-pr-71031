@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onDiagnosticEvent, resetDiagnosticEventsForTest } from "../infra/diagnostic-events.js";
 import {
   getDiagnosticSessionActivitySnapshot,
@@ -92,6 +92,53 @@ describe("whole-batch tool-loop admission", () => {
       }
     },
   );
+
+  it("preserves the sandbox-resolved write target hash through commitReadyCalls", async () => {
+    // Regression (ClawSweeper Rev 25): reconcileToolCallExecutionParams inside
+    // commitReadyCall must not overwrite admission's sandbox-resolved hash with
+    // host-path fallback when a remote-only @file has no host mapping.
+    // Remote-only bridge: no host mapping for workspace files, and a literal
+    // remote "@notes.md" exists (stat), so the @ marker must be preserved.
+    const resolvePath = vi.fn(({ filePath }: { filePath: string }) => ({
+      relativePath: filePath.replace(/^\/+/, ""),
+      containerPath: `/container/workspace/${filePath.replace(/^\/+/, "")}`,
+    }));
+    const stat = vi.fn(({ filePath }: { filePath: string }) =>
+      filePath.replace(/^\/+/, "") === "@notes.md" ? { type: "file" } : null,
+    );
+    const sandboxCtx: HookContext = {
+      ...ctx,
+      sandbox: {
+        root: "/container/workspace",
+        bridge: { resolvePath, stat },
+      } as unknown as HookContext["sandbox"],
+    };
+    const state = getDiagnosticSessionState(sandboxCtx);
+    const atArgs = { path: "@notes.md" };
+    const plainArgs = { path: "notes.md" };
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const a = call(`at-${index}`, "write", atArgs);
+        const b = call(`plain-${index}`, "write", plainArgs);
+        const admissionAt = await admitToolCallBatch([a], sandboxCtx);
+        const admissionPlain = await admitToolCallBatch([b], sandboxCtx);
+        admissionAt.commitReadyCalls?.([{ toolCallId: a.toolCall.id, args: atArgs }]);
+        admissionPlain.commitReadyCalls?.([{ toolCallId: b.toolCall.id, args: plainArgs }]);
+      }
+      const hashes = (state.toolCallHistory ?? [])
+        .filter((entry) => entry.toolName === "write")
+        .map((entry) => entry.mutationTargetHash);
+      expect(hashes.filter((h) => h !== undefined).length).toBe(4);
+      const atHashes = new Set([hashes[0], hashes[2]]);
+      const plainHashes = new Set([hashes[1], hashes[3]]);
+      expect(atHashes.size).toBe(1);
+      expect(plainHashes.size).toBe(1);
+      expect([...atHashes][0]).not.toBe([...plainHashes][0]);
+    } finally {
+      resetDiagnosticRunActivityForTest();
+      resetDiagnosticSessionStateForTest();
+    }
+  });
 
   it("returns a typed critical intervention and records only veto evidence", async () => {
     const state = getDiagnosticSessionState({

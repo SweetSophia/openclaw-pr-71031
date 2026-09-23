@@ -294,6 +294,11 @@ export async function admitToolCallBatch(
       runId: ctx.runId,
       cwd: ctx.cwd ?? ctx.workspaceDir,
       warningThreshold,
+      // Preserve the sandbox-resolved hash from admission; committing is sync
+      // so recomputation here is impossible and host fallback would clobber it.
+      ...(admitted.writeTargetHash !== undefined
+        ? { writeTargetHash: admitted.writeTargetHash }
+        : {}),
     });
     if (
       churn.active &&
