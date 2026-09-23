@@ -43,6 +43,7 @@ import type {
 import { getBeforeToolCallSourceTool } from "./before-tool-call-metadata.js";
 import { getChannelAgentToolMeta } from "./channel-tool-metadata.js";
 import { resolveAgentRunAbortLifecycleFields } from "./run-termination.js";
+import { computeWriteMutationTargetHash } from "./tool-loop-write-outcome.js";
 import {
   resolveToolExecutionErrorKind,
   resolveToolResultFailureKind,
@@ -464,6 +465,16 @@ export async function reconcileLoopCallExecutionParams(args: {
       runId: args.ctx.runId,
       cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
       warningThreshold: resolveToolLoopWarningThreshold(),
+      ...(args.ctx.sandbox
+        ? {
+            writeTargetHash: await computeWriteMutationTargetHash({
+              toolName: args.toolName,
+              toolParams: args.toolParams,
+              cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
+              sandbox: args.ctx.sandbox,
+            }),
+          }
+        : {}),
     });
     if (churn.active || churn.executionParamsChanged) {
       // A trusted novel rewrite can clear before execution; unchanged duplicate
@@ -521,6 +532,16 @@ export async function recordLoopOutcome(args: {
       config: args.ctx.loopDetection,
       ...(args.ctx.runId && { runId: args.ctx.runId }),
       cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
+      ...(args.ctx.sandbox
+        ? {
+            writeTargetHash: await computeWriteMutationTargetHash({
+              toolName: args.toolName,
+              toolParams: args.toolParams,
+              cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
+              sandbox: args.ctx.sandbox,
+            }),
+          }
+        : {}),
     });
     if (args.ctx.loopDetection?.enabled === true) {
       const scopedHistory = record

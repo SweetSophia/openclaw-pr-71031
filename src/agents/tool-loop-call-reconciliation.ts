@@ -18,6 +18,8 @@ export function reconcileToolCallExecutionParams(
     runId?: string;
     cwd?: string;
     warningThreshold: number;
+    /** Writer-parity write-target hash from the async caller, when a sandbox is active. */
+    writeTargetHash?: string;
   },
 ): ReturnType<typeof getToolArgumentChurnStreak> & {
   active: boolean;
@@ -55,11 +57,9 @@ export function reconcileToolCallExecutionParams(
 
     const executionParamsChanged = call.argsHash !== argsHash;
     call.argsHash = argsHash;
-    call.mutationTargetHash = hashWriteMutationTarget(
-      params.toolName,
-      params.toolParams,
-      params.cwd,
-    );
+    call.mutationTargetHash =
+      params.writeTargetHash ??
+      hashWriteMutationTarget(params.toolName, params.toolParams, params.cwd);
     const scopedHistory = history
       .slice(0, index)
       .filter((record) => normalizeRunId(record.runId) === runId);

@@ -15,7 +15,8 @@ import {
   releaseBatchAdmittedToolCalls,
 } from "./agent-tools.before-tool-call.state.js";
 import type { HookContext } from "./agent-tools.before-tool-call.types.js";
-import { hashToolCall } from "./tool-loop-detection.js";
+import { hashToolCall, type ToolLoopDetectionScope } from "./tool-loop-detection.js";
+import { computeWriteMutationTargetHash } from "./tool-loop-write-outcome.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 
 type ToolLoopCall = {
@@ -29,9 +30,24 @@ type ToolLoopBatchAdmission = InternalBeforeToolBatchResult & {
   releaseSkippedCalls?: (toolCallIds: readonly string[]) => void;
 };
 
-function toolLoopScope(ctx: HookContext) {
+async function toolLoopScope(
+  ctx: HookContext,
+  toolName: string,
+  params: unknown,
+): Promise<ToolLoopDetectionScope> {
   const cwd = ctx.cwd ?? ctx.workspaceDir;
-  return ctx.runId || cwd ? { runId: ctx.runId, cwd } : undefined;
+  const writeTargetHash = ctx.sandbox
+    ? await computeWriteMutationTargetHash({
+        toolName,
+        toolParams: params,
+        cwd,
+        sandbox: ctx.sandbox,
+      })
+    : undefined;
+  return {
+    ...(ctx.runId || cwd ? { runId: ctx.runId, cwd } : {}),
+    ...(writeTargetHash !== undefined ? { writeTargetHash } : {}),
+  };
 }
 
 async function evaluateToolLoopCall(
@@ -55,7 +71,7 @@ async function evaluateToolLoopCall(
     toolName,
     call.params,
     ctx.loopDetection,
-    toolLoopScope(ctx),
+    await toolLoopScope(ctx, toolName, call.params),
   );
   if (!result.stuck) {
     return undefined;
@@ -104,7 +120,7 @@ async function recordToolLoopCall(call: ToolLoopCall, ctx: HookContext): Promise
     call.params,
     call.toolCallId,
     ctx.loopDetection,
-    toolLoopScope(ctx),
+    await toolLoopScope(ctx, call.toolName, call.params),
   );
 }
 
@@ -150,21 +166,21 @@ export async function admitToolCallBatch(
     ...sessionState,
     toolCallHistory: [...(sessionState.toolCallHistory ?? [])],
   };
-  const recordLoopVeto = (state: SessionState, call: InternalToolBatchCall) => {
+  const recordLoopVeto = async (state: SessionState, call: InternalToolBatchCall) => {
     recordToolCall(
       state,
       normalizeToolPolicyName(call.toolCall.name || "tool"),
       call.args,
       call.toolCall.id,
       ctx.loopDetection,
-      toolLoopScope(ctx),
+      await toolLoopScope(ctx, call.toolCall.name, call.args),
     );
     const projectedCall = state.toolCallHistory?.at(-1);
     if (projectedCall) {
       projectedCall.outcomeKind = "tool-loop-veto";
     }
   };
-  const projectLoopVeto = (call: InternalToolBatchCall) => {
+  const projectLoopVeto = async (call: InternalToolBatchCall) => {
     // A batch is admitted atomically, so unrelated siblings must not evict the
     // real pre-batch history before a later candidate is checked. Build each
     // synthetic record through the canonical recorder, then append it to the
@@ -173,7 +189,7 @@ export async function admitToolCallBatch(
       ...sessionState,
       toolCallHistory: [],
     };
-    recordLoopVeto(scratchState, call);
+    await recordLoopVeto(scratchState, call);
     const projectedCall = scratchState.toolCallHistory?.at(-1);
     if (projectedCall) {
       projectedState.toolCallHistory?.push(projectedCall);
@@ -201,7 +217,7 @@ export async function admitToolCallBatch(
           rejectedCall.args,
         );
         if (rejectedActionKey === intervention.actionKey) {
-          recordLoopVeto(sessionState, rejectedCall);
+          await recordLoopVeto(sessionState, rejectedCall);
         }
       }
       return { intervention };
@@ -210,16 +226,28 @@ export async function admitToolCallBatch(
       warnings.push(intervention);
     }
     // A later sibling must assume this candidate makes no progress.
-    projectLoopVeto(call);
+    await projectLoopVeto(call);
   }
   for (const call of calls) {
     recordBatchAdmittedToolCall(call.toolCall.id, ctx.runId);
   }
   const admittedById = new Map(
-    calls.map((call) => [
-      call.toolCall.id,
-      { toolName: normalizeToolPolicyName(call.toolCall.name || "tool") },
-    ]),
+    await Promise.all(
+      calls.map(async (call) => [
+        call.toolCall.id,
+        {
+          toolName: normalizeToolPolicyName(call.toolCall.name || "tool"),
+          writeTargetHash: ctx.sandbox
+            ? await computeWriteMutationTargetHash({
+                toolName: normalizeToolPolicyName(call.toolCall.name || "tool"),
+                toolParams: call.args,
+                cwd: ctx.cwd ?? ctx.workspaceDir,
+                sandbox: ctx.sandbox,
+              })
+            : undefined,
+        },
+      ]) as Promise<[string, { toolName: string; writeTargetHash: string | undefined }]>[],
+    ),
   );
   const committedIds = new Set<string>();
   const commitReadyCall = (readyCall: { toolCallId: string; args: unknown }) => {
@@ -233,7 +261,14 @@ export async function admitToolCallBatch(
       readyCall.args,
       readyCall.toolCallId,
       ctx.loopDetection,
-      toolLoopScope(ctx),
+      {
+        ...(ctx.runId || ctx.cwd || ctx.workspaceDir
+          ? { runId: ctx.runId, cwd: ctx.cwd ?? ctx.workspaceDir }
+          : {}),
+        ...(admitted.writeTargetHash !== undefined
+          ? { writeTargetHash: admitted.writeTargetHash }
+          : {}),
+      },
     );
     const churn = reconcileToolCallExecutionParams(sessionState, {
       toolName: admitted.toolName,

@@ -51,7 +51,12 @@ export const UNKNOWN_TOOL_THRESHOLD = 10;
 const CRITICAL_THRESHOLD = 20;
 const GLOBAL_CIRCUIT_BREAKER_THRESHOLD = 30;
 
-type ToolLoopDetectionScope = { runId?: string; cwd?: string };
+export type ToolLoopDetectionScope = {
+  runId?: string;
+  cwd?: string;
+  /** Writer-parity write-target hash, precomputed by async callers with sandbox context. */
+  writeTargetHash?: string;
+};
 
 function selectHistoryForScope(
   history: readonly ToolCallRecord[],
@@ -542,7 +547,8 @@ export function detectToolCallLoop(
   const argumentChurn = getToolArgumentChurnStreak(history, {
     toolName,
     argsHash: currentHash,
-    mutationTargetHash: hashWriteMutationTarget(toolName, params, scope?.cwd),
+    mutationTargetHash:
+      scope?.writeTargetHash ?? hashWriteMutationTarget(toolName, params, scope?.cwd),
     timestamp: Date.now(),
   });
   const knownPollTool = isKnownPollToolCall(toolName, params);
@@ -692,7 +698,8 @@ export function recordToolCall(
   state.toolCallHistory.push({
     toolName,
     argsHash: hashToolCall(toolName, params),
-    mutationTargetHash: hashWriteMutationTarget(toolName, params, scope?.cwd),
+    mutationTargetHash:
+      scope?.writeTargetHash ?? hashWriteMutationTarget(toolName, params, scope?.cwd),
     toolCallId,
     ...(runId && { runId }),
     timestamp: Date.now(),
@@ -717,6 +724,7 @@ export function recordToolCallOutcome(
     config?: ToolLoopDetectionConfig;
     runId?: string;
     cwd?: string;
+    writeTargetHash?: string;
   },
 ): ToolCallRecord | undefined {
   const runId = normalizeRunId(params.runId);
@@ -767,7 +775,9 @@ export function recordToolCallOutcome(
     const record: ToolCallRecord = {
       toolName: params.toolName,
       argsHash,
-      mutationTargetHash: hashWriteMutationTarget(params.toolName, params.toolParams, params.cwd),
+      mutationTargetHash:
+        params.writeTargetHash ??
+        hashWriteMutationTarget(params.toolName, params.toolParams, params.cwd),
       toolCallId: params.toolCallId,
       ...(runId && { runId }),
       outcomeKind: outcome.outcomeKind,
