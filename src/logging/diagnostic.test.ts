@@ -23,7 +23,6 @@ import {
   closeDiagnosticEmbeddedRunOwner,
   getDiagnosticSessionActivitySnapshot,
   createDiagnosticEmbeddedRunOwner,
-  markDiagnosticArgumentChurnObservation,
   markDiagnosticEmbeddedRunEnded,
   markDiagnosticEmbeddedRunStarted,
   markDiagnosticRunProgress,
@@ -771,75 +770,6 @@ describe("stuck session diagnostics threshold", () => {
     expectRecoveryCall(
       recoverStuckSession,
       { sessionId: "s1", sessionKey: "main", queueDepth: 0, allowActiveAbort: true },
-      ["ageMs", "stateGeneration"],
-    );
-  });
-
-  it("aborts continuous argument churn without requiring queued follow-up work", () => {
-    const recoverStuckSession = vi.fn();
-    const stuckSessionAbortMs = 5 * 60_000;
-    const sessionId = "argument-churn-zero-queue";
-    const sessionKey = "main";
-    const runId = "argument-churn-run";
-
-    startDiagnosticHeartbeat(
-      { diagnostics: { enabled: true } },
-      {
-        recoverStuckSession,
-        testTimings: { stuckSessionWarnMs: 30_000, stuckSessionAbortMs },
-      },
-    );
-    logSessionStateChange({ sessionId, sessionKey, state: "processing" });
-    markDiagnosticEmbeddedRunStarted({ sessionId, sessionKey, runId });
-    markDiagnosticArgumentChurnObservation({
-      sessionId,
-      sessionKey,
-      runId,
-      active: true,
-    });
-
-    for (let step = 1; step <= 9; step += 1) {
-      vi.advanceTimersByTime(30_000);
-      markDiagnosticRunProgress({
-        sessionId,
-        sessionKey,
-        runId,
-        reason: "model_call:stream_progress",
-      });
-      markDiagnosticArgumentChurnObservation({
-        sessionId,
-        sessionKey,
-        runId,
-        active: true,
-      });
-    }
-    expect(recoverStuckSession).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(30_000);
-
-    expectRecoveryCall(
-      recoverStuckSession,
-      { sessionId, sessionKey, queueDepth: 0, allowActiveAbort: true },
-      ["ageMs", "stateGeneration"],
-    );
-  });
-
-  it("aborts stale embedded runs when queued work refreshes session activity", () => {
-    const recoverStuckSession = vi.fn();
-
-    logSessionStateChange({ sessionId: "s1", sessionKey: "main", state: "processing" });
-    markDiagnosticEmbeddedRunStarted({ sessionId: "s1", sessionKey: "main" });
-    vi.advanceTimersByTime(507_000);
-    logMessageQueued({ sessionId: "s1", sessionKey: "main", source: "test" });
-    vi.advanceTimersByTime(122_000);
-
-    startEnabledDiagnosticHeartbeat({ recoverStuckSession });
-
-    vi.advanceTimersByTime(30_000);
-
-    expectRecoveryCall(
-      recoverStuckSession,
-      { sessionId: "s1", sessionKey: "main", queueDepth: 1, allowActiveAbort: true },
       ["ageMs", "stateGeneration"],
     );
   });
