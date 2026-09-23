@@ -1,5 +1,8 @@
 // These consumers need the host-owned SQLite broker, which runs in forked processes.
 export const databaseWorkerCoreTestFiles = [
+  "src/agents/embedded-agent-runner/run/attempt-system-prompt.test.ts",
+  "src/agents/embedded-agent-runner/run/attempt-tool-search-prompt.test.ts",
+  "src/config/sessions/session-entry-readonly.worker.test.ts",
   "src/cli/daemon-cli/restart-health-client.test.ts",
   "src/acp/control-plane/manager.test.ts",
   "src/config/sessions/disk-budget.physical-usage.test.ts",
@@ -195,6 +198,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/sessions/sdk.metadata-cwd.test.ts",
   "src/agents/sessions/sdk.metadata-admission.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-prompt-submit.retention.test.ts",
+  "src/agents/embedded-agent-runner/run/attempt-prompt-submit.steering.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-session-replay.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-execution-settle.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-stream-custody.test.ts",
