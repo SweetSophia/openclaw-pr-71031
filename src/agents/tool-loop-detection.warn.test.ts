@@ -1,6 +1,7 @@
 // Tool loop detection tests cover repeated-call hashing, ping-pong detection,
 // unknown-tool thresholds, and circuit-breaker escalation.
 import { describe, expect, it, vi } from "vitest";
+import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 
 // Recognize a provider-docked send tool by name (only "telegram" here) so the

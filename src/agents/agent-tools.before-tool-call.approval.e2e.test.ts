@@ -1,34 +1,25 @@
-import fs from "node:fs/promises";
 /**
  * Integration-style tests for before_tool_call behavior.
  * Covers loop detection, diagnostics, plugin approval, and skill telemetry
  * around wrapped tool execution.
  */
-import os from "node:os";
 import path from "node:path";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GatewayClientRequestError } from "../gateway/client.js";
-import { createAbortError } from "../infra/abort-signal.js";
 import { resetDiagnosticEventsForTest } from "../infra/diagnostic-events.js";
 import { MAX_PLUGIN_APPROVAL_TIMEOUT_MS } from "../infra/plugin-approvals.js";
 import { resetDiagnosticRunActivityForTest } from "../logging/diagnostic-run-activity.js";
 import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
-import {
-  PluginApprovalResolutions,
-  type PluginApprovalResolution,
-} from "../plugins/hook-before-tool-call-result.js";
+import { PluginApprovalResolutions } from "../plugins/hook-before-tool-call-result.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { createHookRunner, type HookRunner } from "../plugins/hooks.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
-import { createDeferredCore } from "../shared/deferred.js";
 import { createChannelTestPluginBase, createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
   getBeforeToolCallPolicyDiagnosticState,
   runBeforeToolCallHook,
 } from "./agent-tools.before-tool-call.js";
-import { createOpenClawCodingTools } from "./agent-tools.js";
 import { callGatewayTool } from "./tools/gateway.js";
 
 afterEach(() => {
@@ -154,44 +145,6 @@ describe("before_tool_call requireApproval handling", () => {
     mockCallGateway.mockReset();
     setActivePluginRegistry(createEmptyPluginRegistry());
   });
-
-  async function runAbortDuringApprovalWait(options?: {
-    abortReason?: unknown;
-    onResolution?: (decision: PluginApprovalResolution) => void | Promise<void>;
-  }) {
-    hookRunner.runBeforeToolCall.mockResolvedValue({
-      requireApproval: {
-        title: "Abortable",
-        description: "Will be aborted",
-        onResolution: options?.onResolution,
-      },
-    });
-
-    const controller = new AbortController();
-    mockCallGateway.mockResolvedValueOnce({ id: "server-id-abort", status: "accepted" });
-    mockCallGateway.mockImplementationOnce(async (_method, _options, _params, extra) => {
-      const signal = extra?.signal;
-      if (!signal) {
-        throw new Error("Expected approval transport abort signal");
-      }
-      const cancelled = createDeferredCore<never>();
-      const onAbort = () => cancelled.reject(createAbortError("gateway request aborted"));
-      signal.addEventListener("abort", onAbort, { once: true });
-      controller.abort(options?.abortReason ?? new Error("run cancelled"));
-      try {
-        return await cancelled.promise;
-      } finally {
-        signal.removeEventListener("abort", onAbort);
-      }
-    });
-
-    return await runBeforeToolCallHook({
-      toolName: "bash",
-      params: {},
-      ctx: { agentId: "main", sessionKey: "main" },
-      signal: controller.signal,
-    });
-  }
 
   it("blocks without triggering approval when both block and requireApproval are set", async () => {
     hookRunner.runBeforeToolCall.mockResolvedValue({

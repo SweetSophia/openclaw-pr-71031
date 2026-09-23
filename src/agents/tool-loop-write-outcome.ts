@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { stableStringify } from "@openclaw/normalization-core";
-import { resolveToCwd } from "./sessions/tools/path-utils.js";
+import { resolveLocalPathToCwd } from "./sessions/tools/path-utils.js";
 
 export function isWriteNoProgressOutcome(details: Record<string, unknown>): boolean {
   // The built-in no-op result echoes the requested path in display text.
@@ -20,6 +20,6 @@ export function hashWriteMutationTarget(
   if (typeof rawPath !== "string" || rawPath.length === 0) {
     return undefined;
   }
-  const path = cwd ? resolveToCwd(rawPath, cwd) : rawPath;
+  const path = cwd ? resolveLocalPathToCwd(rawPath, cwd) : rawPath;
   return createHash("sha256").update(stableStringify({ path })).digest("hex");
 }

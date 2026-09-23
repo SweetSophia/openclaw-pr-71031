@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewayClientRequestError } from "../gateway/client.js";
 import { createAbortError } from "../infra/abort-signal.js";
 import { resetDiagnosticEventsForTest } from "../infra/diagnostic-events.js";
-import { MAX_PLUGIN_APPROVAL_TIMEOUT_MS } from "../infra/plugin-approvals.js";
 import { resetDiagnosticRunActivityForTest } from "../logging/diagnostic-run-activity.js";
 import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
 import {
@@ -23,11 +22,7 @@ import { createHookRunner, type HookRunner } from "../plugins/hooks.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { createChannelTestPluginBase, createTestRegistry } from "../test-utils/channel-plugins.js";
-import {
-  getBeforeToolCallPolicyDiagnosticState,
-  runBeforeToolCallHook,
-} from "./agent-tools.before-tool-call.js";
+import { runBeforeToolCallHook } from "./agent-tools.before-tool-call.js";
 import { createOpenClawCodingTools } from "./agent-tools.js";
 import { callGatewayTool } from "./tools/gateway.js";
 
@@ -95,51 +90,12 @@ describe("before_tool_call requireApproval handling", () => {
 
   const requireRecord = createRequireRecord("object", "label-not-object");
 
-  function requireHookCall(
-    index: number,
-  ): [event: Record<string, unknown>, context: Record<string, unknown>] {
-    const call = hookRunner.runBeforeToolCall.mock.calls[index] as unknown[] | undefined;
-    if (!call) {
-      throw new Error(`missing before_tool_call hook call ${index + 1}`);
-    }
-    return [
-      requireRecord(call[0], "before_tool_call event"),
-      requireRecord(call[1], "before_tool_call context"),
-    ];
-  }
-
   function requireGatewayCall(index: number): unknown[] {
     const call = mockCallGateway.mock.calls[index] as unknown[] | undefined;
     if (!call) {
       throw new Error(`missing gateway call ${index + 1}`);
     }
     return call;
-  }
-
-  function expectRecordFields(record: Record<string, unknown>, fields: Record<string, unknown>) {
-    for (const [key, value] of Object.entries(fields)) {
-      expect(record[key]).toEqual(value);
-    }
-  }
-
-  function registerTelegramPluginApprovalSetup(): void {
-    setActivePluginRegistry(
-      createTestRegistry([
-        {
-          pluginId: "telegram",
-          source: "test",
-          plugin: {
-            ...createChannelTestPluginBase({ id: "telegram", label: "Telegram" }),
-            approvalCapability: {
-              native: {},
-              getActionAvailabilityState: () => ({ kind: "enabled" as const }),
-              getExecInitiatingSurfaceState: () => ({ kind: "disabled" as const }),
-              describePluginApprovalSetup: () => "Configure Telegram native approval setup.",
-            },
-          },
-        },
-      ]),
-    );
   }
 
   beforeEach(() => {
