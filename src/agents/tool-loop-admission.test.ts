@@ -19,6 +19,10 @@ import {
 import type { HookContext } from "./agent-tools.before-tool-call.types.js";
 import { admitToolCallBatch } from "./tool-loop-admission.js";
 import { recordToolCall, recordToolCallOutcome } from "./tool-loop-detection.js";
+import {
+  computeWriteMutationTargetHash,
+  stageWriteTargetHashForToolCall,
+} from "./tool-loop-write-outcome.js";
 
 const ctx = {
   agentId: "main",
@@ -134,6 +138,59 @@ describe("whole-batch tool-loop admission", () => {
       expect(atHashes.size).toBe(1);
       expect(plainHashes.size).toBe(1);
       expect([...atHashes][0]).not.toBe([...plainHashes][0]);
+    } finally {
+      resetDiagnosticRunActivityForTest();
+      resetDiagnosticSessionStateForTest();
+    }
+  });
+
+  it("commits the staged final-args write target hash over the admitted one", async () => {
+    // Remote-only bridge like the sibling test; admission hashes the original
+    // @-marked path, but a before-tool hook rewrites the argument to the plain
+    // name. The wrapper stages the final-args hash; commit must prefer it.
+    const resolvePath = vi.fn(({ filePath }: { filePath: string }) => ({
+      relativePath: filePath.replace(/^\/+/, ""),
+      containerPath: `/container/workspace/${filePath.replace(/^\/+/, "")}`,
+    }));
+    const stat = vi.fn(({ filePath }: { filePath: string }) =>
+      filePath.replace(/^\/+/, "") === "@notes.md" ? { type: "file" } : null,
+    );
+    const sandboxCtx: HookContext = {
+      ...ctx,
+      sandbox: {
+        root: "/container/workspace",
+        bridge: { resolvePath, stat },
+      } as unknown as HookContext["sandbox"],
+    };
+    const originalArgs = { path: "@notes.md" };
+    const rewrittenArgs = { path: "draft.md" };
+    const batchCall = call("rewrite-1", "write", originalArgs);
+    try {
+      const admission = await admitToolCallBatch([batchCall], sandboxCtx);
+      // Simulate the wrapper path: compute + stage the hash for FINAL args.
+      const stagedHash = await computeWriteMutationTargetHash({
+        toolName: "write",
+        toolParams: rewrittenArgs,
+        cwd: undefined,
+        sandbox: sandboxCtx.sandbox,
+      });
+      stageWriteTargetHashForToolCall(batchCall.toolCall.id, stagedHash);
+      admission.commitReadyCalls?.([{ toolCallId: batchCall.toolCall.id, args: rewrittenArgs }]);
+      const state = getDiagnosticSessionState(sandboxCtx);
+      // Admission's advisory projection also records this callId with the
+      // original args; the committed record is the last one for the id.
+      const record = (state.toolCallHistory ?? [])
+        .filter((entry) => entry.toolCallId === batchCall.toolCall.id)
+        .at(-1);
+      expect(record?.mutationTargetHash).toBe(stagedHash);
+      expect(record?.mutationTargetHash).not.toBe(
+        await computeWriteMutationTargetHash({
+          toolName: "write",
+          toolParams: originalArgs,
+          cwd: undefined,
+          sandbox: sandboxCtx.sandbox,
+        }),
+      );
     } finally {
       resetDiagnosticRunActivityForTest();
       resetDiagnosticSessionStateForTest();

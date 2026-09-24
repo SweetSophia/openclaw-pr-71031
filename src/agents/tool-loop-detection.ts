@@ -760,6 +760,10 @@ export function recordToolCallOutcome(
     call.outcomeKind = outcome.outcomeKind;
     call.resultHash = outcome.resultHash;
     call.failureIdentityHash = outcome.failureIdentityHash;
+    if (params.writeTargetHash !== undefined) {
+      // A later final-args hash (e.g. hook rewrite) outranks the admitted one.
+      call.mutationTargetHash = params.writeTargetHash;
+    }
     if (outcome.noProgress) {
       call.noProgress = true;
     } else {

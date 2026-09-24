@@ -43,7 +43,10 @@ import type {
 import { getBeforeToolCallSourceTool } from "./before-tool-call-metadata.js";
 import { getChannelAgentToolMeta } from "./channel-tool-metadata.js";
 import { resolveAgentRunAbortLifecycleFields } from "./run-termination.js";
-import { computeWriteMutationTargetHash } from "./tool-loop-write-outcome.js";
+import {
+  computeWriteMutationTargetHash,
+  stageWriteTargetHashForToolCall,
+} from "./tool-loop-write-outcome.js";
 import {
   resolveToolExecutionErrorKind,
   resolveToolResultFailureKind,
@@ -462,6 +465,19 @@ export async function reconcileLoopCallExecutionParams(args: {
       sessionKey: args.ctx.sessionKey,
       sessionId: args.ctx.sessionId,
     });
+    const finalWriteTargetHash = args.ctx.sandbox
+      ? await computeWriteMutationTargetHash({
+          toolName: args.toolName,
+          toolParams: args.toolParams,
+          cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
+          sandbox: args.ctx.sandbox,
+        })
+      : undefined;
+    // The batch commit is synchronous and runs after this reconcile, so stage
+    // the final-args hash for it keyed by toolCallId (hook rewrites land here).
+    if (args.toolCallId) {
+      stageWriteTargetHashForToolCall(args.toolCallId, finalWriteTargetHash);
+    }
     const churn = reconcileToolCallExecutionParams(sessionState, {
       toolName: args.toolName,
       toolParams: args.toolParams,
@@ -469,16 +485,7 @@ export async function reconcileLoopCallExecutionParams(args: {
       runId: args.ctx.runId,
       cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
       warningThreshold: resolveToolLoopWarningThreshold(),
-      ...(args.ctx.sandbox
-        ? {
-            writeTargetHash: await computeWriteMutationTargetHash({
-              toolName: args.toolName,
-              toolParams: args.toolParams,
-              cwd: args.ctx.cwd ?? args.ctx.workspaceDir,
-              sandbox: args.ctx.sandbox,
-            }),
-          }
-        : {}),
+      ...(finalWriteTargetHash !== undefined ? { writeTargetHash: finalWriteTargetHash } : {}),
     });
     if (churn.active || churn.executionParamsChanged) {
       // A trusted novel rewrite can clear before execution; unchanged duplicate

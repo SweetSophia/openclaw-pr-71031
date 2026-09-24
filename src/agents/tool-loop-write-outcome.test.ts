@@ -32,6 +32,23 @@ afterEach(() => {
   }
 });
 
+describe("computeWriteMutationTargetHash file:// parity", () => {
+  it("hashes file:// URL and plain path of one target identically", async () => {
+    const bridge = makeBridge();
+    const urlHash = await computeWriteMutationTargetHash({
+      toolName: "write",
+      toolParams: { path: "file:///workspace/notes.md" },
+      sandbox: { root: "/workspace", bridge },
+    });
+    const plainHash = await computeWriteMutationTargetHash({
+      toolName: "write",
+      toolParams: { path: "/workspace/notes.md" },
+      sandbox: { root: "/workspace", bridge },
+    });
+    expect(urlHash).toBe(plainHash);
+  });
+});
+
 describe("computeWriteMutationTargetHash", () => {
   it("matches the writer's reference-marker semantics: @name without a literal file joins plain name", async () => {
     const bridge = makeBridge();

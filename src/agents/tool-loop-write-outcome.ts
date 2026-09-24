@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { stableStringify } from "@openclaw/normalization-core";
 import { normalizeFileToolPathParam } from "./agent-tools.params.js";
-import { normalizeFileReferencePrefix } from "./sandbox-paths.js";
+import { resolveContainerPathCandidate } from "./agent-tools.read.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import { resolveLocalPathToCwd } from "./sessions/tools/path-utils.js";
 
@@ -52,8 +52,6 @@ export type WriteMutationTargetSandbox = {
  * back to host cwd resolution when no sandbox is active or bridge resolution
  * fails; admission must never break on hashing.
  *
- * ponytail: skips the writer's file://-URL conversion (resolveContainerPathCandidate);
- * distinct file URLs already hash distinctly. Add it if URL-vs-plain parity ever matters.
  */
 export async function computeWriteMutationTargetHash(params: {
   toolName: string;
@@ -78,9 +76,12 @@ export async function computeWriteMutationTargetHash(params: {
       if (normalized === "") {
         return undefined;
       }
-      // Mirror the writer's container-candidate selection: consume one @ prefix
-      // while escaping literal @@ names (normalizeFileReferencePrefix).
-      const candidate = normalizeFileReferencePrefix(normalized);
+      // Mirror the writer's container-candidate selection exactly: @-prefix
+      // consumption plus file://-URL conversion (resolveContainerPathCandidate).
+      const candidate = resolveContainerPathCandidate(normalized);
+      if (candidate === null) {
+        return undefined;
+      }
       const resolved = params.sandbox.bridge.resolvePath({
         filePath: candidate,
         cwd: params.sandbox.root,
@@ -91,4 +92,42 @@ export async function computeWriteMutationTargetHash(params: {
     }
   }
   return hashWriteMutationTarget(params.toolName, params.toolParams, params.cwd);
+}
+
+/**
+ * Staged final-argument write-target hashes, keyed by toolCallId.
+ *
+ * The before-tool-call wrapper resolves the writer-parity hash from the final
+ * (hook-rewritten) execution arguments, but the pending-call record is only
+ * committed later by the synchronous batch commit callback. Staging bridges
+ * that ordering gap without widening the sync SDK contract.
+ */
+const stagedWriteTargetHashes = new Map<string, string>();
+
+/** Stage the final-args write-target hash for a yet-uncommitted tool call. */
+export function stageWriteTargetHashForToolCall(
+  toolCallId: string,
+  hash: string | undefined,
+): void {
+  if (hash === undefined) {
+    stagedWriteTargetHashes.delete(toolCallId);
+    return;
+  }
+  stagedWriteTargetHashes.set(toolCallId, hash);
+}
+
+/** Take (consume) the staged hash for a tool call, if any. */
+export function takeStagedWriteTargetHash(toolCallId: string): string | undefined {
+  const hash = stagedWriteTargetHashes.get(toolCallId);
+  if (hash !== undefined) {
+    stagedWriteTargetHashes.delete(toolCallId);
+  }
+  return hash;
+}
+
+/** Drop staged hashes for calls that will never commit. */
+export function releaseStagedWriteTargetHashes(toolCallIds: readonly string[]): void {
+  for (const id of toolCallIds) {
+    stagedWriteTargetHashes.delete(id);
+  }
 }

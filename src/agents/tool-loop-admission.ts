@@ -17,7 +17,11 @@ import {
 } from "./agent-tools.before-tool-call.state.js";
 import type { HookContext } from "./agent-tools.before-tool-call.types.js";
 import { hashToolCall, type ToolLoopDetectionScope } from "./tool-loop-detection.js";
-import { computeWriteMutationTargetHash } from "./tool-loop-write-outcome.js";
+import {
+  computeWriteMutationTargetHash,
+  releaseStagedWriteTargetHashes,
+  takeStagedWriteTargetHash,
+} from "./tool-loop-write-outcome.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 
 type ToolLoopCall = {
@@ -273,6 +277,8 @@ export async function admitToolCallBatch(
     if (!admitted || committedIds.has(readyCall.toolCallId)) {
       return;
     }
+    const finalWriteTargetHash =
+      takeStagedWriteTargetHash(readyCall.toolCallId) ?? admitted.writeTargetHash;
     recordToolCall(
       sessionState,
       admitted.toolName,
@@ -283,9 +289,7 @@ export async function admitToolCallBatch(
         ...(ctx.runId || ctx.cwd || ctx.workspaceDir
           ? { runId: ctx.runId, cwd: ctx.cwd ?? ctx.workspaceDir }
           : {}),
-        ...(admitted.writeTargetHash !== undefined
-          ? { writeTargetHash: admitted.writeTargetHash }
-          : {}),
+        ...(finalWriteTargetHash !== undefined ? { writeTargetHash: finalWriteTargetHash } : {}),
       },
     );
     const churn = reconcileToolCallExecutionParams(sessionState, {
@@ -295,11 +299,9 @@ export async function admitToolCallBatch(
       runId: ctx.runId,
       cwd: ctx.cwd ?? ctx.workspaceDir,
       warningThreshold,
-      // Preserve the sandbox-resolved hash from admission; committing is sync
-      // so recomputation here is impossible and host fallback would clobber it.
-      ...(admitted.writeTargetHash !== undefined
-        ? { writeTargetHash: admitted.writeTargetHash }
-        : {}),
+      // Same final-args hash the record above carries; the stale admitted
+      // hash must not clobber it here.
+      ...(finalWriteTargetHash !== undefined ? { writeTargetHash: finalWriteTargetHash } : {}),
     });
     if (
       churn.active &&
@@ -348,6 +350,7 @@ export async function admitToolCallBatch(
     },
     releaseSkippedCalls(toolCallIds) {
       // Agent-core only supplies admitted prepared calls suppressed at a steering checkpoint.
+      releaseStagedWriteTargetHashes(toolCallIds);
       releaseBatchAdmittedToolCalls(toolCallIds, ctx.runId);
     },
   };
