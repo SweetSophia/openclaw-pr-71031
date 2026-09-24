@@ -179,9 +179,9 @@ describe("whole-batch tool-loop admission", () => {
       const state = getDiagnosticSessionState(sandboxCtx);
       // Admission's advisory projection also records this callId with the
       // original args; the committed record is the last one for the id.
-      const record = (state.toolCallHistory ?? [])
-        .filter((entry) => entry.toolCallId === batchCall.toolCall.id)
-        .at(-1);
+      const record = (state.toolCallHistory ?? []).findLast(
+        (entry) => entry.toolCallId === batchCall.toolCall.id,
+      );
       expect(record?.mutationTargetHash).toBe(stagedHash);
       expect(record?.mutationTargetHash).not.toBe(
         await computeWriteMutationTargetHash({
