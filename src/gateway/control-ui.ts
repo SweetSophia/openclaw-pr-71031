@@ -2,6 +2,8 @@ import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import { readFileWindowFully, safeFileURLToPath } from "@openclaw/fs-safe/advanced";
+import { isWithinDir } from "@openclaw/fs-safe/path";
 import { detectMime, kindFromMime } from "@openclaw/media-core/mime";
 import {
   asDateTimestampMs,
@@ -20,10 +22,7 @@ import {
   readFileDescriptorBounded,
 } from "../infra/boundary-file-read.js";
 import { resolveDevInstallGitBranch } from "../infra/dev-install-branch.js";
-import { readFileWindowFully } from "../infra/file-read.js";
 import { openLocalFileSafely, FsSafeError } from "../infra/fs-safe.js";
-import { safeFileURLToPath } from "../infra/local-file-access.js";
-import { isWithinDir } from "../infra/path-safety.js";
 import { assertLocalMediaAllowed, LocalMediaAccessError } from "../media/local-media-access.js";
 import {
   probePlaybackMediaFileDescriptor,
@@ -61,6 +60,7 @@ import {
   type AssistantMediaReader,
 } from "./assistant-media-policy.js";
 import type { ControlUiAssetRetention } from "./control-ui-asset-retention.js";
+import { resolveControlUiBootstrapPresentation } from "./control-ui-bootstrap-presentation.js";
 import {
   buildControlUiRootAssetPath,
   CONTROL_UI_BASE_PATH_ATTRIBUTE,
@@ -477,39 +477,36 @@ async function resolveAssistantMediaAvailability(
 ): Promise<AssistantMediaAvailability & { mediaTicket?: string; mediaTicketExpiresAt?: string }> {
   try {
     const { opened, mimeType, file } = await openAssistantMedia(source, policy, allowance);
-    try {
-      const mediaKind = kindFromMime(mimeType);
-      const playbackProbe =
-        mediaKind === "audio" || mediaKind === "video"
-          ? await probePlaybackMediaFileDescriptor(opened.handle.fd, mediaKind)
-          : null;
-      const playback =
-        mimeType && (mediaKind === "audio" || mediaKind === "video")
-          ? await resolvePlaybackModeForSource({
-              sourcePath: opened.realPath,
-              sourceStat: opened.stat,
-              mimeType,
-              kind: mediaKind,
-              probe: playbackProbe,
-            })
-          : undefined;
-      return {
-        available: true,
-        ...(mimeType ? { mimeType } : {}),
-        ...(playback ? { playback } : {}),
-        sizeBytes: opened.stat.size,
-        ...toMediaProbeResult(playbackProbe),
-        ...createAssistantMediaTicket({
-          source,
-          agentId,
-          session: policy.session,
-          reader: policy.reader,
-          ...(file ? { file } : {}),
-        }),
-      };
-    } finally {
-      await opened.handle.close().catch(() => {});
-    }
+    await using mediaOwner = opened;
+    const mediaKind = kindFromMime(mimeType);
+    const playbackProbe =
+      mediaKind === "audio" || mediaKind === "video"
+        ? await probePlaybackMediaFileDescriptor(mediaOwner.handle.fd, mediaKind)
+        : null;
+    const playback =
+      mimeType && (mediaKind === "audio" || mediaKind === "video")
+        ? await resolvePlaybackModeForSource({
+            sourcePath: opened.realPath,
+            sourceStat: opened.stat,
+            mimeType,
+            kind: mediaKind,
+            probe: playbackProbe,
+          })
+        : undefined;
+    return {
+      available: true,
+      ...(mimeType ? { mimeType } : {}),
+      ...(playback ? { playback } : {}),
+      sizeBytes: opened.stat.size,
+      ...toMediaProbeResult(playbackProbe),
+      ...createAssistantMediaTicket({
+        source,
+        agentId,
+        session: policy.session,
+        reader: policy.reader,
+        ...(file ? { file } : {}),
+      }),
+    };
   } catch (error) {
     return classifyAssistantMediaError(error);
   }
@@ -1087,17 +1084,7 @@ export async function handleControlUiHttpRequest(
           ? (resolveRuntimeServiceBuildId() ?? undefined)
           : undefined,
       devGitBranch,
-      embedSandbox:
-        config?.gateway?.controlUi?.embedSandbox === "trusted"
-          ? "trusted"
-          : config?.gateway?.controlUi?.embedSandbox === "strict"
-            ? "strict"
-            : "scripts",
-      allowExternalEmbedUrls: config?.gateway?.controlUi?.allowExternalEmbedUrls === true,
-      automaticallyFetchFavicons: config?.gateway?.controlUi?.automaticallyFetchFavicons !== false,
-      seamColor: config?.ui?.seamColor,
-      environment: config?.gateway?.controlUi?.environment,
-      communityInvite: config?.gateway?.controlUi?.communityInvite !== false,
+      ...resolveControlUiBootstrapPresentation(config),
       terminalEnabled,
       cliAgentsEnabled: config?.gateway?.cliAgents?.enabled !== false,
       pluginAssetsRequireAuth: opts?.auth !== undefined && opts.auth.mode !== "none",
