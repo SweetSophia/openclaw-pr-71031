@@ -65,7 +65,8 @@ function getWriteMutationChurnStreak(
   ) {
     return { count: 0, variantCount: 0 };
   }
-  const variants = new Set<string>();
+  const variants: string[] = [];
+  const recentVariantIndexes = new Map<string, number>();
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const record = history[i];
     if (
@@ -76,18 +77,20 @@ function getWriteMutationChurnStreak(
     ) {
       break;
     }
-    // A repeated earlier variant ends the streak: the run demonstrated it can
-    // return to an old variant, so later novel writes must not re-inherit the
-    // pre-repeat variant set ("repeats an earlier argument variant" clears).
-    if (variants.has(record.argsHash)) {
+    // Scanning backward, the newer occurrence of a repeated variant marks the
+    // reset boundary. Keep only writes after that occurrence (including it).
+    const repeatedAt = recentVariantIndexes.get(record.argsHash);
+    if (repeatedAt !== undefined) {
+      variants.length = repeatedAt + 1;
       break;
     }
-    variants.add(record.argsHash);
+    recentVariantIndexes.set(record.argsHash, variants.length);
+    variants.push(record.argsHash);
   }
-  if (variants.has(current.argsHash)) {
+  if (variants.includes(current.argsHash)) {
     return { count: 0, variantCount: 0 };
   }
-  return { count: variants.size, variantCount: variants.size };
+  return { count: variants.length, variantCount: variants.length };
 }
 
 export function getToolArgumentChurnStreak(

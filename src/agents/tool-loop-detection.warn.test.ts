@@ -19,6 +19,7 @@ import {
   recordToolCall,
   recordToolCallOutcome,
 } from "./tool-loop-detection.js";
+import { TOOL_LOOP_WARNING_THRESHOLD as WARNING_THRESHOLD } from "./tool-loop-thresholds.js";
 
 function recordSuccessfulCall(
   state: SessionState,
@@ -37,7 +38,6 @@ function recordSuccessfulCall(
   });
 }
 
-const WARNING_THRESHOLD = 10;
 const GLOBAL_CIRCUIT_BREAKER_THRESHOLD = 30;
 
 const enabledLoopDetectionConfig: ToolLoopDetectionConfig = { enabled: true };
@@ -85,6 +85,58 @@ describe("tool-loop-detection changed-write warning", () => {
       livenessSignal: "argument_churn",
     });
     expect(state.toolCallHistory).toHaveLength(WARNING_THRESHOLD);
+  });
+
+  it("starts a new changed-write streak after repeating an earlier variant", () => {
+    const state = createState();
+    const path = "/tmp/draft.md";
+    const changedResult = {
+      content: [{ type: "text", text: "write complete" }],
+      details: { changed: true, created: false },
+    };
+    for (let index = 0; index < WARNING_THRESHOLD; index += 1) {
+      recordSuccessfulCall(
+        state,
+        "write",
+        { path, content: `revision ${index}` },
+        changedResult,
+        index,
+      );
+    }
+    recordSuccessfulCall(
+      state,
+      "write",
+      { path, content: "revision 0" },
+      changedResult,
+      WARNING_THRESHOLD,
+    );
+    expect(state.toolCallHistory?.at(-1)?.outcomeKind).toBe("write-mutation");
+    expect(
+      detectToolCallLoop(
+        state,
+        "write",
+        { path, content: "next revision" },
+        enabledLoopDetectionConfig,
+      ),
+    ).toEqual({ stuck: false });
+
+    for (let index = 0; index < WARNING_THRESHOLD - 1; index += 1) {
+      recordSuccessfulCall(
+        state,
+        "write",
+        { path, content: `new revision ${index}` },
+        changedResult,
+        WARNING_THRESHOLD + index + 1,
+      );
+    }
+    expect(
+      detectToolCallLoop(
+        state,
+        "write",
+        { path, content: "later revision" },
+        enabledLoopDetectionConfig,
+      ),
+    ).toMatchObject({ stuck: true, detector: "argument_churn", count: WARNING_THRESHOLD });
   });
 
   it("resets changed-write churn after target escape or verification", () => {
