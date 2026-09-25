@@ -1116,6 +1116,33 @@ describe("tool-loop-detection", () => {
       expect(loopResult.stuck).toBe(false);
     });
 
+    it("does not re-inherit write-churn variants after a repeated variant", () => {
+      const state = createState();
+      // Five distinct variants on one target, then a repeat of variant 1.
+      const contents = ["a", "b", "c", "d", "e", "a"];
+      for (let index = 0; index < contents.length; index += 1) {
+        recordSuccessfulCall(
+          state,
+          "write",
+          { path: "/tmp/notes.md", content: contents[index] },
+          {
+            content: [{ type: "text", text: `wrote revision ${index}` }],
+            details: { ok: true, revision: index },
+          },
+          index,
+        );
+      }
+      // A novel sixth variant must not re-inherit the pre-repeat set (which had
+      // five variants ≥ warning threshold): the repeat cleared continuity.
+      const loopResult = detectToolCallLoop(
+        state,
+        "write",
+        { path: "/tmp/notes.md", content: "f" },
+        enabledLoopDetectionConfig,
+      );
+      expect(loopResult.stuck).toBe(false);
+    });
+
     it("does not block argument churn when a repeated variant makes progress", () => {
       const state = createState();
 

@@ -76,6 +76,12 @@ function getWriteMutationChurnStreak(
     ) {
       break;
     }
+    // A repeated earlier variant ends the streak: the run demonstrated it can
+    // return to an old variant, so later novel writes must not re-inherit the
+    // pre-repeat variant set ("repeats an earlier argument variant" clears).
+    if (variants.has(record.argsHash)) {
+      break;
+    }
     variants.add(record.argsHash);
   }
   if (variants.has(current.argsHash)) {

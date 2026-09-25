@@ -476,7 +476,10 @@ export async function reconcileLoopCallExecutionParams(args: {
     // The batch commit is synchronous and runs after this reconcile, so stage
     // the final-args hash for it keyed by toolCallId (hook rewrites land here).
     if (args.toolCallId) {
-      stageWriteTargetHashForToolCall(args.toolCallId, finalWriteTargetHash);
+      stageWriteTargetHashForToolCall(
+        { runId: args.ctx.runId, toolCallId: args.toolCallId },
+        finalWriteTargetHash,
+      );
     }
     const churn = reconcileToolCallExecutionParams(sessionState, {
       toolName: args.toolName,

@@ -6,6 +6,8 @@ import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import {
   computeWriteMutationTargetHash,
   hashWriteMutationTarget,
+  stageWriteTargetHashForToolCall,
+  takeStagedWriteTargetHash,
 } from "./tool-loop-write-outcome.js";
 
 const tempDirs: string[] = [];
@@ -30,6 +32,19 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     rmSync(tempDirs.pop()!, { recursive: true, force: true });
   }
+});
+
+describe("staged write-target hash run scoping", () => {
+  it("concurrent runs sharing a toolCallId keep independent staged hashes", () => {
+    const id = "shared-call-id";
+    stageWriteTargetHashForToolCall({ runId: "run-A", toolCallId: id }, "HASH_A");
+    stageWriteTargetHashForToolCall({ runId: "run-B", toolCallId: id }, "HASH_B");
+    expect(takeStagedWriteTargetHash({ runId: "run-B", toolCallId: id })).toBe("HASH_B");
+    expect(takeStagedWriteTargetHash({ runId: "run-A", toolCallId: id })).toBe("HASH_A");
+    // Consumed: later takes find nothing, even under the other run scope.
+    expect(takeStagedWriteTargetHash({ runId: "run-B", toolCallId: id })).toBeUndefined();
+    expect(takeStagedWriteTargetHash({ toolCallId: id })).toBeUndefined();
+  });
 });
 
 describe("computeWriteMutationTargetHash file:// parity", () => {

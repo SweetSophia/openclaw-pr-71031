@@ -174,7 +174,10 @@ describe("whole-batch tool-loop admission", () => {
         cwd: undefined,
         sandbox: sandboxCtx.sandbox,
       });
-      stageWriteTargetHashForToolCall(batchCall.toolCall.id, stagedHash);
+      stageWriteTargetHashForToolCall(
+        { runId: sandboxCtx.runId, toolCallId: batchCall.toolCall.id },
+        stagedHash,
+      );
       admission.commitReadyCalls?.([{ toolCallId: batchCall.toolCall.id, args: rewrittenArgs }]);
       const state = getDiagnosticSessionState(sandboxCtx);
       // Admission's advisory projection also records this callId with the

@@ -278,7 +278,8 @@ export async function admitToolCallBatch(
       return;
     }
     const finalWriteTargetHash =
-      takeStagedWriteTargetHash(readyCall.toolCallId) ?? admitted.writeTargetHash;
+      takeStagedWriteTargetHash({ runId: ctx.runId, toolCallId: readyCall.toolCallId }) ??
+      admitted.writeTargetHash;
     recordToolCall(
       sessionState,
       admitted.toolName,
@@ -350,7 +351,7 @@ export async function admitToolCallBatch(
     },
     releaseSkippedCalls(toolCallIds) {
       // Agent-core only supplies admitted prepared calls suppressed at a steering checkpoint.
-      releaseStagedWriteTargetHashes(toolCallIds);
+      releaseStagedWriteTargetHashes(toolCallIds, ctx.runId);
       releaseBatchAdmittedToolCalls(toolCallIds, ctx.runId);
     },
   };

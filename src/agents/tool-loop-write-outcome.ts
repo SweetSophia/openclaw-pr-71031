@@ -95,7 +95,9 @@ export async function computeWriteMutationTargetHash(params: {
 }
 
 /**
- * Staged final-argument write-target hashes, keyed by toolCallId.
+ * Staged final-argument write-target hashes, run-scoped like the neighboring
+ * batch-admission markers (same runId+toolCallId key convention), so
+ * concurrent runs sharing a toolCallId cannot consume each other's hash.
  *
  * The before-tool-call wrapper resolves the writer-parity hash from the final
  * (hook-rewritten) execution arguments, but the pending-call record is only
@@ -104,30 +106,42 @@ export async function computeWriteMutationTargetHash(params: {
  */
 const stagedWriteTargetHashes = new Map<string, string>();
 
+function stagedWriteTargetHashKey(params: { runId?: string; toolCallId: string }): string {
+  return params.runId ? `${params.runId}:${params.toolCallId}` : params.toolCallId;
+}
+
 /** Stage the final-args write-target hash for a yet-uncommitted tool call. */
 export function stageWriteTargetHashForToolCall(
-  toolCallId: string,
+  params: { runId?: string; toolCallId: string },
   hash: string | undefined,
 ): void {
+  const key = stagedWriteTargetHashKey(params);
   if (hash === undefined) {
-    stagedWriteTargetHashes.delete(toolCallId);
+    stagedWriteTargetHashes.delete(key);
     return;
   }
-  stagedWriteTargetHashes.set(toolCallId, hash);
+  stagedWriteTargetHashes.set(key, hash);
 }
 
 /** Take (consume) the staged hash for a tool call, if any. */
-export function takeStagedWriteTargetHash(toolCallId: string): string | undefined {
-  const hash = stagedWriteTargetHashes.get(toolCallId);
+export function takeStagedWriteTargetHash(params: {
+  runId?: string;
+  toolCallId: string;
+}): string | undefined {
+  const key = stagedWriteTargetHashKey(params);
+  const hash = stagedWriteTargetHashes.get(key);
   if (hash !== undefined) {
-    stagedWriteTargetHashes.delete(toolCallId);
+    stagedWriteTargetHashes.delete(key);
   }
   return hash;
 }
 
 /** Drop staged hashes for calls that will never commit. */
-export function releaseStagedWriteTargetHashes(toolCallIds: readonly string[]): void {
+export function releaseStagedWriteTargetHashes(
+  toolCallIds: readonly string[],
+  runId?: string,
+): void {
   for (const id of toolCallIds) {
-    stagedWriteTargetHashes.delete(id);
+    stagedWriteTargetHashes.delete(stagedWriteTargetHashKey({ runId, toolCallId: id }));
   }
 }
