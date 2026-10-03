@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { onDiagnosticEvent, resetDiagnosticEventsForTest } from "../infra/diagnostic-events.js";
 import {
   getDiagnosticSessionActivitySnapshot,
@@ -10,6 +11,7 @@ import {
   getDiagnosticSessionState,
   resetDiagnosticSessionStateForTest,
 } from "../logging/diagnostic-session-state.js";
+import { bindAgentToolSourceExecutionGuard } from "./agent-tool-source-execution-guard.js";
 import { runBeforeToolCallHook } from "./agent-tools.before-tool-call.policy.js";
 import {
   clearBatchAdmittedToolCallsForRun,
@@ -17,12 +19,20 @@ import {
   resetAdjustedParamsByToolCallIdForTests,
 } from "./agent-tools.before-tool-call.state.js";
 import type { HookContext } from "./agent-tools.before-tool-call.types.js";
+import { wrapToolWithBeforeToolCallHook } from "./agent-tools.before-tool-call.wrapper.js";
+import { createSandboxedWriteTool } from "./agent-tools.read.js";
+import { getInternalToolExecutionPreparer } from "./runtime/internal-hooks.js";
+import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
 import { admitToolCallBatch } from "./tool-loop-admission.js";
 import { recordToolCall, recordToolCallOutcome } from "./tool-loop-detection.js";
 import {
   computeWriteMutationTargetHash,
+  releaseStagedWriteTargetHashes,
   stageWriteTargetHashForToolCall,
+  takeStagedWriteTargetHash,
 } from "./tool-loop-write-outcome.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 const ctx = {
   agentId: "main",
@@ -45,6 +55,128 @@ describe("whole-batch tool-loop admission", () => {
     resetDiagnosticSessionStateForTest();
     resetDiagnosticEventsForTest();
     resetAdjustedParamsByToolCallIdForTests();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(["success", "error", "cancelled", "guard-refused", "disposed"] as const)(
+    "releases staged hashes when a wrapped sandbox write is %s",
+    async (outcome) => {
+      const root = tempDirs.make("openclaw-staged-write-");
+      const bridge = createHostSandboxFsBridge(root);
+      const sandboxCtx = { ...ctx, cwd: root, sandbox: { root, bridge } };
+      const toolCallId = `staged-${outcome}`;
+      const args = { path: "draft.md", content: "synthetic revision" };
+      const failure = new Error("synthetic write failure");
+      const controller = new AbortController();
+      let current = true;
+      const source = bindAgentToolSourceExecutionGuard(
+        createSandboxedWriteTool({ root, bridge }),
+        () => {
+          if (!current) {
+            throw failure;
+          }
+        },
+      );
+      const tool = wrapToolWithBeforeToolCallHook(source, sandboxCtx);
+      stageWriteTargetHashForToolCall({ runId: "other-run", toolCallId }, "other-run-hash");
+      try {
+        if (outcome === "success" || outcome === "error") {
+          if (outcome === "error") {
+            vi.spyOn(bridge, "writeFile").mockRejectedValueOnce(failure);
+            await expect(tool.execute(toolCallId, args)).rejects.toBe(failure);
+          } else {
+            const result = await tool.execute(toolCallId, args);
+            expect(result.details).toMatchObject({ changed: true });
+            expect((await bridge.readFile({ filePath: args.path })).toString()).toBe(args.content);
+          }
+        } else {
+          const prepare = getInternalToolExecutionPreparer(tool);
+          if (!prepare) {
+            throw new Error("missing wrapped execution preparer");
+          }
+          const prepared = await prepare({ toolCallId, args, signal: controller.signal });
+          expect(prepared.kind).toBe("ready");
+          if (prepared.kind !== "ready") {
+            throw new Error("sandbox write did not reach its staged launch boundary");
+          }
+          try {
+            if (outcome === "disposed") {
+              prepared.dispose();
+              await expect(prepared.execute()).resolves.toMatchObject({
+                details: { status: "skipped" },
+              });
+            } else {
+              if (outcome === "cancelled") {
+                controller.abort(failure);
+              } else {
+                current = false;
+              }
+              await expect(prepared.execute()).rejects.toBe(failure);
+            }
+          } finally {
+            prepared.dispose();
+          }
+        }
+        expect(takeStagedWriteTargetHash({ runId: ctx.runId, toolCallId })).toBeUndefined();
+        expect(takeStagedWriteTargetHash({ runId: "other-run", toolCallId })).toBe(
+          "other-run-hash",
+        );
+        if (outcome !== "success") {
+          expect(await bridge.stat({ filePath: args.path })).toBeNull();
+        }
+      } finally {
+        releaseStagedWriteTargetHashes([toolCallId], ctx.runId);
+        releaseStagedWriteTargetHashes([toolCallId], "other-run");
+      }
+    },
+  );
+
+  it("retains the final sandbox target until batch commit, then releases it on completion", async () => {
+    const root = tempDirs.make("openclaw-staged-batch-");
+    const bridge = createHostSandboxFsBridge(root);
+    const sandboxCtx = { ...ctx, cwd: root, sandbox: { root, bridge } };
+    const original = call("staged-batch", "write", {
+      path: "original.md",
+      content: "synthetic revision",
+    });
+    const finalArgs = { ...original.args, path: "final.md" };
+    const source = createSandboxedWriteTool({ root, bridge });
+    source.finalizeBeforeToolCallParams = () => finalArgs;
+    const tool = wrapToolWithBeforeToolCallHook(source, sandboxCtx);
+    const admission = await admitToolCallBatch([original], sandboxCtx);
+    const prepare = getInternalToolExecutionPreparer(tool);
+    if (!prepare) {
+      throw new Error("missing wrapped execution preparer");
+    }
+    const prepared = await prepare({ toolCallId: original.toolCall.id, args: original.args });
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") {
+      throw new Error("sandbox write did not reach its staged launch boundary");
+    }
+    try {
+      const expectedHash = await computeWriteMutationTargetHash({
+        toolName: "write",
+        toolParams: finalArgs,
+        sandbox: sandboxCtx.sandbox,
+      });
+      await prepared.execute(() => {
+        admission.commitReadyCalls?.([{ toolCallId: original.toolCall.id, args: prepared.args }]);
+        expect(
+          getDiagnosticSessionState(sandboxCtx).toolCallHistory?.at(-1)?.mutationTargetHash,
+        ).toBe(expectedHash);
+      });
+      expect((await bridge.readFile({ filePath: finalArgs.path })).toString()).toBe(
+        original.args.content,
+      );
+      expect(await bridge.stat({ filePath: "original.md" })).toBeNull();
+      expect(
+        takeStagedWriteTargetHash({ runId: ctx.runId, toolCallId: original.toolCall.id }),
+      ).toBeUndefined();
+    } finally {
+      prepared.dispose();
+      admission.releaseSkippedCalls?.([original.toolCall.id]);
+    }
   });
 
   it.each([

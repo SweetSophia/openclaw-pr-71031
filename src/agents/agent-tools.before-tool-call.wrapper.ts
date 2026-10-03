@@ -88,6 +88,7 @@ import {
   appendToolLoopWarning,
   attachInternalToolExecutionPreparer,
 } from "./runtime/internal-hooks.js";
+import { releaseStagedWriteTargetHashes } from "./tool-loop-write-outcome.js";
 import { buildToolMutationState } from "./tool-mutation.js";
 import { normalizeToolPolicyName } from "./tool-policy.js";
 import {
@@ -654,6 +655,8 @@ export function wrapToolWithBeforeToolCallHook(
         control,
       ])) as Awaited<ReturnType<AnyAgentTool["execute"]>>;
     } finally {
+      // Batch launch consumes staging first; settlement also covers direct calls and disposal.
+      releaseStagedWriteTargetHashes([params.toolCallId], ctx?.runId);
       // Timeout observers may consume this while the call is still pending.
       clearTrackedToolExecution(params.toolCallId, ctx?.runId);
     }
