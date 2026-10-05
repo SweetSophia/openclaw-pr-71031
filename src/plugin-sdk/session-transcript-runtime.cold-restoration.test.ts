@@ -70,7 +70,9 @@ describe.each(readers)("$name transcript cold-restoration policy", ({ name, read
     const fixture = await createSessionColdStorageFixture(scope.storePath, scope.sessionKey);
     scope = fixture.scope;
     const hot = await read({ ...scope, restoreColdStorage: false, maxBytes: 1_000_000 });
-    if (hot.kind !== "page") throw new Error("expected hot fixture page");
+    if (hot.kind !== "page") {
+      throw new Error("expected hot fixture page");
+    }
     await expect(
       runSessionColdStorageMaintenance({ config: maintenanceConfig(scope.storePath) }),
     ).resolves.toMatchObject({ archivedTranscripts: 1 });
@@ -121,7 +123,9 @@ describe.each(readers)("$name transcript cold-restoration policy", ({ name, read
           }
         : { kind: "page", entries: [{ entryId: "user-message" }], hasMore: true },
     );
-    if (first.kind !== "page") throw new Error("expected initial page");
+    if (first.kind !== "page") {
+      throw new Error("expected initial page");
+    }
     await expect(
       read({ ...scope, restoreColdStorage: false, cursor: first.cursor }),
     ).resolves.toMatchObject(
