@@ -5782,3 +5782,16 @@ This does not yet qualify all schema/quarantine admission SQL against that
 aggregate meter, or prove a post-snapshot archive/rewrite publication fence.
 Those remain required before a public facade can promise the full contract.
 The operation has no production caller or released SDK export.
+
+The page kernel's SQL runs only through
+`session-history-read-operation.worker.ts` at runtime; direct kernel callers are
+test fixtures. Its worker classification is recorded in the migration inventory.
+The kernel intentionally uses SQLite JSON projection for lifecycle identity and
+event-size metadata so it can measure the projected UTF-8 source before returning
+it, without fetching the full private entry or decompressing an event first.
+The dialect ratchet reports three new `json-projection` constructs. Their scoped
+classification requires maintainer review; the guard has not been relaxed.
+A future backend must implement equivalent bounded projection and pre-fetch byte
+measurement at the session-history store owner, with the same identity, snapshot
+and accounting tests, or refuse this operation as unsupported. This contribution
+adds no backend, persistent format or migration.
