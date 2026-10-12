@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { hasSqliteDatabaseSchemaAdmissionForPath } from "../../infra/sqlite-database-admission.js";
 import { readDatabasePathIdentitySync } from "../../infra/sqlite-worker-identity.js";
 import { WorkerTaskError } from "../../infra/worker-task-pool.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../../state/openclaw-agent-db-lifecycle.js";
@@ -10,6 +11,7 @@ import { startTranscriptPageRead } from "./session-transcript-page-read.operatio
 import {
   acquireHistoryDatabaseResource,
   historyLane,
+  targetDiscoveryLane,
   type SessionHistoryDatabaseTarget,
 } from "./session-transcript-worker-resources.js";
 import type { SessionTranscriptWorkerReply } from "./session-transcript-worker.types.js";
@@ -35,7 +37,7 @@ it("responds at the queued deadline while the predecessor still owns execution",
   await withPageFixture([{ type: "session", id: "page-runtime", version: 3 }], async (fixture) => {
     const reply = Promise.withResolvers<SessionTranscriptWorkerReply<"transcript-page-read">>();
     const entered = Promise.withResolvers<void>();
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -86,7 +88,7 @@ it("responds at the queued deadline while the predecessor still owns execution",
 
 it("rejects settlement when execution loss leaves source accounting unverified", async () => {
   await withPageFixture([{ type: "session", id: "page-runtime", version: 3 }], async (fixture) => {
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -98,7 +100,7 @@ it("rejects settlement when execution loss leaves source accounting unverified",
         close: async () => undefined,
       };
     });
-    const rotate = vi.spyOn(historyLane.pool, "rotate").mockResolvedValue(undefined);
+    const rotate = vi.spyOn(fixture.pool, "rotate").mockResolvedValue(undefined);
     try {
       const operation = startTranscriptPageRead(
         fixture.target,
@@ -130,7 +132,7 @@ it("publishes queued expiry even when the timer has not been serviced", async ()
   await withPageFixture([{ type: "session", id: "page-runtime", version: 3 }], async (fixture) => {
     const reply = Promise.withResolvers<SessionTranscriptWorkerReply<"transcript-page-read">>();
     const entered = Promise.withResolvers<void>();
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -179,7 +181,7 @@ it("handles a response rejection when the caller observes settlement first", asy
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error("close failed"))
       .mockResolvedValue(undefined);
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -217,7 +219,7 @@ it("lets the database owner retry a failed owned-task close before reopening adm
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error("owned close failed"))
       .mockResolvedValue(undefined);
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -227,7 +229,7 @@ it("lets the database owner retry a failed owned-task close before reopening adm
       })();
       return { result, close };
     });
-    const rotate = vi.spyOn(historyLane.pool, "rotate").mockResolvedValue(undefined);
+    const rotate = vi.spyOn(fixture.pool, "rotate").mockResolvedValue(undefined);
     try {
       const operation = startTranscriptPageRead(
         fixture.target,
@@ -261,6 +263,7 @@ type PageFixture = {
     env: NodeJS.ProcessEnv;
   };
   target: SessionHistoryDatabaseTarget;
+  pool: typeof historyLane.pool;
 };
 
 async function withPageFixture(
@@ -283,7 +286,12 @@ async function withPageFixture(
     });
     await replaceTranscriptEvents({ ...scope, storePath: scope.path }, events);
     await closeOpenClawAgentDatabaseByPathAsync(writer.path);
-    await run({ scope, target: { agentId: scope.agentId, path: scope.path } });
+    // Closing the writer may retire schema admission. Control the pool that
+    // read admission will dispatch to, including a cold target-discovery read.
+    const pool = hasSqliteDatabaseSchemaAdmissionForPath(scope.path)
+      ? historyLane.pool
+      : targetDiscoveryLane.pool;
+    await run({ scope, target: { agentId: scope.agentId, path: scope.path }, pool });
   });
 }
 
@@ -366,7 +374,7 @@ it("bounds the response while owned cleanup stays held and discards a late page"
     const entered = Promise.withResolvers<void>();
     const closing = Promise.withResolvers<void>();
     let calls = 0;
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory) => {
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
       }
@@ -457,7 +465,7 @@ it("revokes publication for an idempotent cancel and keeps the lane usable", asy
 it("keeps admission closed when worker retirement fails during a timeout", async () => {
   await withPageFixture([{ type: "session", id: "page-runtime", version: 3 }], async (fixture) => {
     const close = vi.fn<() => Promise<void>>().mockRejectedValue(new Error("retirement failed"));
-    const run = vi.spyOn(historyLane.pool, "runTask").mockImplementation((factory, options) => {
+    const run = vi.spyOn(fixture.pool, "runTask").mockImplementation((factory, options) => {
       // Assign native custody exactly as the pool would, then time out.
       if (typeof factory !== "function") {
         throw new Error("Expected worker input factory");
@@ -472,7 +480,7 @@ it("keeps admission closed when worker retirement fails during a timeout", async
       };
     });
     const rotate = vi
-      .spyOn(historyLane.pool, "rotate")
+      .spyOn(fixture.pool, "rotate")
       .mockImplementation(() => Promise.reject(new Error("rotation failed")));
     try {
       const operation = startTranscriptPageRead(
