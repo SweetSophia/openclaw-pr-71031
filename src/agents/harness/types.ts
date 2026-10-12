@@ -185,6 +185,8 @@ type AgentHarnessIsolatedCompletionParams = {
   thinkLevel?: import("../../auto-reply/thinking.js").ThinkLevel;
   /** Do not recover ambiguous reasoning as visible text; an empty visible result is valid. */
   outputTextPolicy?: "strict-visible";
+  /** Report inference dispatch through settlement, excluding preparation and cleanup. */
+  onRequestComplete?: (durationMs: number) => void;
   streamParams?: {
     maxTokens?: number;
     temperature?: number;
@@ -409,9 +411,13 @@ export type AgentHarnessSessionDeletionParams = {
 };
 
 export type AgentHarnessSessionDeletionMutation = {
-  /** Synchronously remove only the prepared owner's state at the session commit edge. */
+  /**
+   * @deprecated Opaque callbacks run after durable session commit. Use
+   * createNativeSessionBindingLifecycleV2 for stored bindings or
+   * createNativeSessionCommitFinalizer for cleanup.
+   */
   commit: () => void;
-  /** Restore only that removal when the authoritative session transaction rolls back. */
+  /** @deprecated Opaque callbacks no longer run before commit, so their rollback is unused. */
   rollback: () => void;
 };
 

@@ -157,6 +157,12 @@ answer once. This does not change provider replay. A run ID is provenance, not
 write authorization; the existing session checks still apply. If no source run
 is supplied, correlation retains the latest-message behavior.
 
+SQLite resolves delivery idempotency keys through their index independently of
+run correlation. Run correlation reads assistant messages from the producing
+run's indexed input onward; for a legacy run without that input identity, it
+searches only the most recent 4,096 transcript events. Settle those legacy
+deliveries promptly rather than relying on a full-history text search.
+
 ## Bounded model context
 
 Use `await SessionManager.openModelContextAsync(...)` from
@@ -384,6 +390,8 @@ the provider's own awaited work.
     `appendSessionTranscriptMessageByIdentity(...)` is a low-level append of an already canonical message. Plugins must not synthesize media-bearing user rows with top-level `MediaPath`, `MediaPaths`, `MediaUrl`, `MediaUrls`, `MediaType`, or `MediaTypes`. Channel ingress should pass ordered facts through `MsgContext.media` and let the host own user-turn persistence. A host-prepared persisted user message carries canonical ordered facts under `message.__openclaw.media`; the generic append API does not infer or repair legacy parallel arrays.
 
     Native command adapters that deliver outside the reply dispatcher use `recordDeliveredCommandExchange(...)` from `openclaw/plugin-sdk/session-transcript-runtime` **after confirmed delivery**. Pass the owning `sessionKey`, optional `agentId`, `config` or `storePath`, the literal `commandText`, the visible `replyText`, a stable `commandId`, and a stable per-reply `replyId`. Capture `expectedSessionId` before sending; optional lifecycle/writer expectations and `assertCurrent` preserve the bound target. The helper appends replayable user/assistant rows, initializes a previously absent session through the session creation owner, deduplicates input across replies, redacts login URLs and credential codes, and leaves `/btw` and `/side` ephemeral. It returns the transcript append result (`ok: true` with the target/message ID, or `ok: false` with a reason); it does not send a message. Never use it for previews, failed sends, or ordinary model replies that already own their transcript rows.
+
+    When a native interaction also dispatches a command, use `scopeCommandTranscriptId(messageId, { channelId, accountId, conversationId })` for both replies so the command is stored once. Use the dispatcher's message identity and conversation route, not a separate trigger identity; distinguish the delivered replies with `replyId`.
 
     A harness that supports `sessions_yield` uses `appendSessionYieldContext(...)` after successful yield settlement to retain private resume context in the canonical session transcript. Pass the session target, `message`, and an `assertCurrent` callback that checks the current run and settlement authority. The writer checks that callback again before appending the hidden context entry. Failed or revoked settlement must not append context; public tool results and display projections must omit the private message.
 

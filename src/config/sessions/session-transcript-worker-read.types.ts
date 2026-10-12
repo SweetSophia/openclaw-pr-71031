@@ -24,6 +24,7 @@ import type {
   SessionTranscriptEventMatch,
 } from "./session-history-read.types.js";
 import type { SessionTranscriptAnchorSelection } from "./session-transcript-anchor-read.kernel.js";
+import type { SessionTranscriptAnchorEntry } from "./session-transcript-anchor-read.types.js";
 import type { TranscriptPageReadRequest } from "./session-transcript-page-read.types.js";
 import type { SessionTranscriptSearchParams } from "./session-transcript-search.types.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
@@ -33,6 +34,29 @@ export type SessionTranscriptPageReadWorkerInput = {
   database: { agentId: string; path: string };
   request: TranscriptPageReadRequest;
   expectedIdentity: DatabaseFileIdentity;
+};
+
+export type SessionPreviewWorkerInput = {
+  kind: "session-preview";
+  database: { agentId: string; path: string };
+  target: {
+    agentId: string;
+    sessionId: string;
+    sessionKey?: string;
+    entryValidationKey?: string;
+  };
+  env?: NodeJS.ProcessEnv;
+  maxItems: number;
+  maxChars: number;
+  admission?: UserTurnTranscriptAdmissionReceipt;
+};
+
+export type SessionTitleFieldsWorkerInput = {
+  kind: "session-title-fields";
+  database: { agentId: string; path: string };
+  scope: SessionTranscriptReadScope;
+  includeInterSession?: boolean;
+  admission?: UserTurnTranscriptAdmissionReceipt;
 };
 
 type BoardReadWorkerInput<Kind extends string, Operation extends keyof BoardReadOperations> = {
@@ -92,6 +116,7 @@ export type SessionTranscriptAnchorsWorkerInput = {
   database: { agentId: string; path: string };
   resolved: ResolvedTranscriptScope;
   selection: SessionTranscriptAnchorSelection;
+  preparedEntry?: SessionTranscriptAnchorEntry;
   expectedIdentity: DatabaseFileIdentity;
 };
 
@@ -123,6 +148,13 @@ export type SessionTranscriptMessagePresenceWorkerInput = Omit<
   "kind"
 > & {
   kind: "transcript-message-presence";
+};
+
+export type SessionTranscriptStatsWorkerInput = Omit<
+  SessionTranscriptWatermarkWorkerInput,
+  "kind"
+> & {
+  kind: "transcript-stats";
 };
 
 export type SessionTranscriptDeltaWorkerInput = Omit<
@@ -189,7 +221,7 @@ export type SessionResetRecallWorkerInput = {
   admission?: UserTurnTranscriptAdmissionReceipt;
 };
 
-export type SessionEntryWorkerInput = {
+type SessionEntryWorkerRequest = {
   kind: "session-entry";
   absPath: string;
   options: Omit<BuildSessionEntryOptions, "onTranscriptMessage" | "parseYieldEveryLines"> & {
@@ -198,5 +230,10 @@ export type SessionEntryWorkerInput = {
     storePath: string;
   };
   admission?: UserTurnTranscriptAdmissionReceipt;
-  redaction: SensitiveTextRedactionSnapshot;
 };
+
+export type SessionEntryWorkerInput = SessionEntryWorkerRequest &
+  (
+    | { mode?: "entry"; redaction: SensitiveTextRedactionSnapshot }
+    | { mode: "snapshot"; includeOriginalMessages: boolean }
+  );
