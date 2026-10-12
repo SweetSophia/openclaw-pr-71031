@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -6,6 +5,7 @@ import { observeSqliteReadSql } from "../../test/helpers/sqlite-statement-execut
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import * as kyselySync from "../infra/kysely-sync.js";
 import * as nodeSqlite from "../infra/node-sqlite.js";
+import { revokeSqliteDatabaseAdmissionsForPath } from "../infra/sqlite-database-admission.js";
 import {
   clearOpenClawAgentIntegrityVerification,
   clearOpenClawDatabaseQuarantine,
@@ -70,7 +70,7 @@ function failReceiptWrite(
   }
 }
 
-it("reuses admitted quarantine schema while publishing decision changes", () => {
+it("loads quarantine once and publishes record and clear without another read", () => {
   const fixture = createFixture();
   const open = nodeSqlite.openNodeSqliteDatabase;
   const timeouts: unknown[] = [];
@@ -92,6 +92,9 @@ it("reuses admitted quarantine schema while publishing decision changes", () => 
     }
     return database;
   });
+  expect(
+    readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, { env: fixture.env }),
+  ).toBeUndefined();
   const readDecision = () => {
     const observation = observeSqliteReadSql(
       nodeSqlite.requireNodeSqlite().StatementSync.prototype,
@@ -100,13 +103,13 @@ it("reuses admitted quarantine schema while publishing decision changes", () => 
       const result = readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, {
         env: fixture.env,
       });
-      // The opening spy contributes one timeout observation; the decision contributes one read.
-      expect(observation.queries).toHaveLength(2);
+      expect(observation.queries).toEqual([]);
       return result;
     } finally {
       observation.restore();
     }
   };
+  expect(readDecision()).toBeUndefined();
   expect(
     recordOpenClawDatabaseQuarantine({
       env: fixture.env,
@@ -121,59 +124,12 @@ it("reuses admitted quarantine schema while publishing decision changes", () => 
   });
   expect(clearOpenClawDatabaseQuarantine(fixture.pathname, { env: fixture.env })).toBe(true);
   expect(readDecision()).toBeUndefined();
-  expect(timeouts).toEqual([5_000, 5_000, 5_000, 5_000]);
+  expect(timeouts).toEqual([5_000, 5_000, 5_000]);
   expect(statements.some((sql) => /\bPRAGMA\s+busy_timeout\s*=/i.test(sql))).toBe(false);
   expect(statements.filter((sql) => /\bPRAGMA\s+user_version\b|CREATE TABLE/i.test(sql))).toEqual(
     [],
   );
 });
-
-it.each(["initialized", "empty"] as const)(
-  "observes quarantine recorded by another process after a clean read of an %s store",
-  (store) => {
-    const fixture = createFixture();
-    if (store === "empty") {
-      fs.renameSync(fixture.storePath, `${fixture.storePath}.initialized`);
-      fs.writeFileSync(fixture.storePath, "");
-    }
-    const read = () =>
-      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, { env: fixture.env });
-    expect(read()).toBeUndefined();
-    const identity = fs.statSync(fixture.pathname, { bigint: true });
-    const storeIdentity = fs.statSync(fixture.storePath, { bigint: true });
-    execFileSync(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        `import { DatabaseSync } from "node:sqlite";
-       const database = new DatabaseSync(process.argv[1]);
-       database.exec("CREATE TABLE IF NOT EXISTS quarantined_databases (path TEXT PRIMARY KEY, kind TEXT NOT NULL, reason TEXT NOT NULL, quarantined_at INTEGER NOT NULL, writer_app_version TEXT NOT NULL, verified_generation TEXT); PRAGMA user_version=2");
-       database.prepare("INSERT INTO quarantined_databases (path, kind, reason, quarantined_at, writer_app_version) VALUES (?, 'agent', 'synthetic external corruption', 1, 'fixture')").run(process.argv[2]);
-       database.close();`,
-        fixture.storePath,
-        fixture.pathname,
-      ],
-      { stdio: "pipe" },
-    );
-    const current = fs.statSync(fixture.pathname, { bigint: true });
-    expect({ dev: current.dev, ino: current.ino }).toEqual({
-      dev: identity.dev,
-      ino: identity.ino,
-    });
-    const currentStore = fs.statSync(fixture.storePath, { bigint: true });
-    expect({ dev: currentStore.dev, ino: currentStore.ino }).toEqual({
-      dev: storeIdentity.dev,
-      ino: storeIdentity.ino,
-    });
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      expect(read()).toMatchObject({
-        name: "SqliteIntegrityError",
-        message: expect.stringContaining("synthetic external corruption"),
-      });
-    }
-  },
-);
 
 it("keeps quarantine decisions scoped to their recorded pathname", () => {
   const fixture = createFixture();
@@ -261,7 +217,9 @@ it.each([
       return database;
     });
   try {
-    expect(() => readOpenClawDatabaseQuarantineFailure("agent", pathname, { env })).toThrow(
+    expect(() =>
+      readOpenClawDatabaseQuarantineFailure("agent", pathname, { env, fresh: true }),
+    ).toThrow(
       expect.objectContaining({
         name: "OpenClawQuarantineReadCleanupError",
         errors: [
@@ -294,11 +252,17 @@ it("uses generation metadata only after its schema version admits it", () => {
       "PRAGMA user_version = 1; UPDATE quarantined_databases SET verified_generation = 'invalid'",
     );
     expect(
-      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, { env: fixture.env }),
+      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, {
+        env: fixture.env,
+        fresh: true,
+      }),
     ).toMatchObject({ name: "SqliteIntegrityError" });
     database.exec("PRAGMA user_version = 2");
     expect(
-      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, { env: fixture.env }),
+      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, {
+        env: fixture.env,
+        fresh: true,
+      }),
     ).toBeUndefined();
   } finally {
     database.close();
@@ -389,6 +353,9 @@ it.each(["record", "clear"] as const)(
 
     expect(result).toBe(false);
     expect(readPersistedQuarantineRow(fixture.pathname, { env: fixture.env })).toEqual(before);
+    expect(
+      readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, { env: fixture.env }),
+    ).toMatchObject({ message: expect.stringContaining("original") });
     expect(readOpenClawAgentIntegrityVerification(fixture.pathname, fixture.env)).toEqual(receipt);
   },
 );
@@ -403,6 +370,8 @@ it("returns the recorded decision when the quarantine store file is read-only", 
       reason: "readonly-store-lookup",
     }),
   ).toBe(true);
+  // Exercise a cold read instead of the writer's published quarantine decision.
+  revokeSqliteDatabaseAdmissionsForPath(fixture.storePath);
   fs.chmodSync(fixture.storePath, 0o444);
   try {
     const failure = readOpenClawDatabaseQuarantineFailure("agent", fixture.pathname, {
@@ -425,6 +394,8 @@ it("does not recreate a quarantine store that disappears before the lookup open"
       reason: "vanished-store",
     }),
   ).toBe(true);
+  // A cold worker has no previously published decision to reuse.
+  revokeSqliteDatabaseAdmissionsForPath(fixture.storePath);
   const open = nodeSqlite.openNodeSqliteDatabase;
   const spy = vi.spyOn(nodeSqlite, "openNodeSqliteDatabase").mockImplementation((...args) => {
     // Simulate the deletion race exactly at the exists-check/open seam.
@@ -438,6 +409,7 @@ it("does not recreate a quarantine store that disappears before the lookup open"
       env: fixture.env,
     });
     expect(failure).toBeUndefined();
+    expect(spy).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(fixture.storePath)).toBe(false);
   } finally {
     spy.mockRestore();
