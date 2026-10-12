@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { sql, type AliasedExpression, type Compilable } from "kysely";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../../infra/sqlite-transaction.js";
@@ -142,10 +143,10 @@ function readBoundedValue(
 }
 
 function record(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new PageReadRefusal("read_failed");
   }
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function readPage(
@@ -353,10 +354,8 @@ export function readTranscriptPageInDatabase(
 ): TranscriptPageReadResult {
   try {
     if (
-      Object.keys(meter.limits).some(
-        (key) =>
-          request.limits[key as keyof TranscriptPageReadLimits] !==
-          meter.limits[key as keyof TranscriptPageReadLimits],
+      (["limit", "maxScannedEntries", "maxMaterializedBytes"] as const).some(
+        (key) => request.limits[key] !== meter.limits[key],
       )
     ) {
       throw new PageReadRefusal("resource_limit");

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { expectDefined } from "@openclaw/normalization-core";
 import { expect, it } from "vitest";
 import { observeHostDataSql } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { requireNodeSqlite } from "../../infra/node-sqlite.js";
@@ -173,8 +174,10 @@ it("pages through the built read-only worker and retains the original frontier a
             throw new Error(second.error);
           }
           expect(second.value.records.map((entry) => entry.storedEntryId)).toEqual(["two"]);
-          expect(second.value.records[0].beforePosition).toEqual(
-            first.value.records[1].afterPosition,
+          expect(
+            expectDefined(second.value.records[0], "continuation source record").beforePosition,
+          ).toEqual(
+            expectDefined(first.value.records[1], "last first-page source record").afterPosition,
           );
           expect(second.value.nextPosition).toBeUndefined();
           const fresh = await owner.readTranscriptPage({
@@ -247,7 +250,9 @@ it("refuses first admission of a newer schema without migrating it", async () =>
     const verify = new (requireNodeSqlite().DatabaseSync)(scope.path, { readOnly: true });
     try {
       const version = verify.prepare("PRAGMA user_version").get();
-      expect(version.user_version).toBeGreaterThan(0);
+      expect(expectDefined(version, "preserved schema version row").user_version).toBeGreaterThan(
+        0,
+      );
     } finally {
       verify.close();
     }

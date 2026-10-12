@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import { expect, it, vi } from "vitest";
 import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { resolveZstdCodec } from "../../infra/zstd-codec.js";
@@ -193,7 +194,9 @@ it("counts decoded Unicode source and repeated metadata using independent native
         expect(first.ok).toBe(true);
         expect(second.budget).toEqual(first.budget);
         expect(decodedSizes).toEqual([Buffer.byteLength(json), Buffer.byteLength(json)]);
-        expect(first.budget.materializedBytes).toBeGreaterThan(decodedSizes[0]);
+        expect(first.budget.materializedBytes).toBeGreaterThan(
+          expectDefined(decodedSizes[0], "observed decoded source size"),
+        );
       },
     );
   } finally {
@@ -297,7 +300,9 @@ it("pages an existing transcript on a read-only handle with observed aggregate a
       Buffer.byteLength(JSON.stringify(events[0]) + JSON.stringify(events[1])),
     );
     expect(result.value.nextPosition).toBeDefined();
-    expect(result.value.records[0].afterPosition).toEqual(result.value.records[1].beforePosition);
+    expect(expectDefined(result.value.records[0], "first source record").afterPosition).toEqual(
+      expectDefined(result.value.records[1], "second source record").beforePosition,
+    );
   });
 });
 
@@ -343,9 +348,9 @@ it("caps returned records independently of the source inspection allowance", asy
       }
       expect(second.value.records).toHaveLength(5);
       expect(second.value.nextPosition).toBeUndefined();
-      expect(first.value.records.at(-1)!.afterPosition).toEqual(
-        second.value.records[0].beforePosition,
-      );
+      expect(
+        expectDefined(first.value.records.at(-1), "last first-page record").afterPosition,
+      ).toEqual(expectDefined(second.value.records[0], "first continuation record").beforePosition);
     },
   );
 });
