@@ -324,7 +324,7 @@ export async function startSessionsSendAgentRun(
         result: jsonResult({
           runId: responseRunId,
           status: "error",
-          error: "Gateway admission is still pending; inspect this run before retrying.",
+          error: "Gateway admission is still pending; inspect this run before any further action.",
           sentBeforeError: true,
           sessionKey: fallbackSessionKey ?? params.sessionKey,
         }),

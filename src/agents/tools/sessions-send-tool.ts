@@ -77,7 +77,8 @@ import type { SessionsSendToolOptions } from "./sessions-send-tool.types.js";
 
 const log = createSubsystemLogger("agents/sessions-send");
 
-const NO_REPLY_MESSAGE = "No visible reply or pending delivery. Continue or retry if needed.";
+const NO_REPLY_MESSAGE =
+  "No visible reply or pending delivery yet. Inspect the run state before considering any resend.";
 
 export function createSessionsSendTool(opts?: SessionsSendToolOptions): AnyAgentTool {
   const requesterOrigin = normalizeDeliveryContext(opts?.requesterOrigin);
