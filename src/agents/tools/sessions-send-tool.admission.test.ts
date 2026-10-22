@@ -533,7 +533,7 @@ describe("sessions_send dispatch admission", () => {
       if (admission === "pending") {
         expect.soft(result.details).toMatchObject({
           sentBeforeError: true,
-          error: expect.stringMatching(/(?:inspect|check).*before.*retry/i),
+          error: expect.stringMatching(/inspect.*run/i),
         });
       } else {
         expect.soft(result.details).not.toHaveProperty("sentBeforeError");
